@@ -86,3 +86,71 @@ For GitHub Actions, consider using [`voidzero-dev/setup-vp`](https://github.com/
 - [ ] Run `vp install` after pulling remote changes and before getting started.
 - [ ] Run `vp check` and `vp test` to validate changes.
 <!--VITE PLUS END-->
+
+# プロジェクト：ことばの湖、ひびく未来
+
+マジカルミライ2026 プログラミングコンテスト向けの Web リリックアプリ。
+テーマ「湖のソナーレ」をもとに、ユーザーが歌詞に触れると湖に波紋が広がり、1曲の最後に自分だけの湖面アートが完成する作品。
+
+## 重要
+
+- **仕様書を必ず先に読む**：[`../docs/PROJECT_SPEC.md`](../docs/PROJECT_SPEC.md) がこの作品の唯一の仕様の源。実装で迷ったらここに戻る。
+- **アート寄りのリリック体験**：スコア、コンボ、判定、失敗演出、ゲーム的UIは入れない。クリックは「歌詞を湖に響かせる」ためのもので、勝ち負けではない。
+- **テーマ「湖のソナーレ」との接続を最優先**：派手さよりも、湖・水面・反射・波紋・光・透明感を大切にする。
+- **TextAlive App API は Phase 3**：まずモックデータで美しく動く MVP を維持する。差し替えやすい設計を崩さない。
+
+## 技術構成
+
+- Vite+（vp CLI）+ TypeScript の **Vanilla** 構成（React/Vue 等は使わない）
+- 描画は Canvas 2D。アニメーションは `requestAnimationFrame`
+- 外部ライブラリは必要最小限
+
+## ディレクトリ構成
+
+```
+src/
+  main.ts                  // エントリーポイント
+  style.css                // 全体スタイル
+  app/App.ts               // アプリ全体の組み立て
+  components/
+    LakeCanvas.ts          // 湖面Canvas（背景・粒子・波紋・湖面文字・星座）
+    LyricDisplay.ts        // 中央の歌詞表示とクリックハンドラ
+    PlayerControls.ts      // 再生・停止・リセット・進行バー
+    EndingOverlay.ts       // 曲終了時のエンディング画面
+  data/mockLyrics.ts       // モック歌詞とセクション境界
+  state/
+    mockPlayer.ts          // モック再生時間の管理（TextAlive差し替え対象）
+    lyricTiming.ts         // 現在歌詞・セクションの算出
+  types/lyric.ts           // 共通型
+  utils/
+    classifyWord.ts        // 単語分類（bright/deep/sound/airy/neutral）と色
+    generateLakeTitle.ts   // 湖タイトル生成
+```
+
+新規ファイルを足すときも、Canvas描画は `LakeCanvas.ts` に集約し、UI/HTML側のクリック・表示は `components/*` 側に置く責務分離を守る。
+
+## 開発フロー
+
+- 起動: `vp dev`（このディレクトリで）
+- 検査: `vp check`（format + lint + 型 をまとめて。`--fix` で自動修正）
+- ビルド: `vp build`
+- 依存追加が必要なら `vp add <pkg>`（pnpm/npm/yarn を直接呼ばない）
+
+## コーディング規約
+
+- `tsconfig.json` で `verbatimModuleSyntax: true` のため、型のみの import は `import type` で書く
+- 同じく `allowImportingTsExtensions: true` なので相対 import は `.ts` 拡張子付きで書く（既存に倣う）
+- `noUnusedLocals` / `noUnusedParameters` が有効。未使用は消すか、export してインタフェースの一部として残す
+- ファイルは **UTF-8 (BOMなし)** で保存する
+
+## 演出を足すときの指針
+
+仕様書 §11 の Phase 順で進める。MVP（Phase 1）は完成済み。
+次は Phase 2 の演出強化：
+
+- bridge での「過去に選んだ言葉が浮上」演出
+- chorus / finalChorus での文字発光の強化
+- 反射文字・粒子のクオリティアップ
+- レスポンシブ最適化
+
+Phase 3 で TextAlive を導入するとき、`state/mockPlayer.ts` と同じインタフェースで `state/textAlivePlayer.ts` を作り、`app/App.ts` の生成箇所だけを差し替える設計を保つ。歌詞も同じ `LyricLine` 型に揃える。
