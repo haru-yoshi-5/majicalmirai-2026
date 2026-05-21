@@ -111,16 +111,18 @@ For GitHub Actions, consider using [`voidzero-dev/setup-vp`](https://github.com/
 - アニメーションは PixiJS の ticker（必要に応じて `requestAnimationFrame`）
 - TextAlive 連携は `state/TextAliveController.ts` として分離し Phase 3 で実装
 
-## 現在の状態（2026-05-21 時点）
+## 現在の状態（2026-05-22 時点）
 
 - **`../docs/PROJECT_SPEC.md` は新作品「湖風の歌詞凧」で更新済み**
-- **`src/` 配下には旧作品「ことばの湖、ひびく未来」の MVP がそのまま残っている**
-  - 次の実装ステップで全面置換予定（仕様書 §21 Phase 1 の 15 項目）
-  - 旧 `components/LakeCanvas.ts` / `utils/generateLakeTitle.ts` は新作品では使わない
-- **PixiJS はまだ未導入**：`vp add pixi.js` で追加する想定
-- `index.html` の `<title>` も旧作品名のまま → 新作品名に更新が必要
+- **Phase 1 (MVP) §21 の 15 項目はすべて実装完了**
+  - タイトル → 凧づくり → 演奏 → エンディングまでひと通り動く
+  - 旧作品「ことばの湖、ひびく未来」の `LakeCanvas.ts` / `generateLakeTitle.ts` は削除済み
+  - `index.html` の `<title>` も「湖風の歌詞凧 | Magical Mirai 2026」に更新済み
+- **PixiJS 8.18.1 導入済み**（`vp add pixi.js`）
+- `state/TextAliveController.ts` はスケルトンのみ。Phase 3 で実装する想定
+- `vp check` / `vp build` ともに通る状態
 
-## ディレクトリ構成（実装後の目標形）
+## ディレクトリ構成（現状）
 
 ```
 src/
@@ -181,12 +183,13 @@ Vite+ 自動生成ブロック（`<!--VITE PLUS START-->` 〜 `<!--VITE PLUS END
 
 仕様書 §21 の Phase 順で進める。
 
-- **Phase 1: MVP（未着手・最優先）**
+- **Phase 1: MVP（完了）**
   タイトル / 凧づくり / モックプレイヤー / モック歌詞同期 /
   歌詞クリック → 湖に落ちる → 波紋 → 風の流線 → 自分の凧上昇 → 凧に模様・文字が増える /
   周囲の凧の出現 / エンディング表示 / 最後の歌詞から凧名生成
-- **Phase 2: 演出強化** — 分類別の空・湖・風変化、サビでの群舞、湖面反射、
+- **Phase 2: 演出強化（次の作業対象）** — 分類別の空・湖・風変化、サビでの群舞、湖面反射、
   五線譜風凧糸、風の渦、localStorage による過去凧表示
-- **Phase 3: TextAlive 連携** — `state/mockPlayer.ts` と同じインタフェースで
-  `state/TextAliveController.ts` を実装し、`app/App.ts` の生成箇所だけ差し替える設計を保つ。
+- **Phase 3: TextAlive 連携** — `state/mockPlayer.ts` と同じインタフェース
+  （`state/TextAliveController.ts` の `SongPlayer` / `SongPlayerEvents`）で
+  TextAlive 版を実装し、`app/App.ts` の `createMockPlayer` 呼び出し箇所だけ差し替える設計を保つ。
   歌詞も同じ `LyricLine` 型に揃える。
