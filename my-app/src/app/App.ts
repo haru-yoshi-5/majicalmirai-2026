@@ -1,97 +1,197 @@
-import { createLakeCanvas } from "../components/LakeCanvas.ts";
+import { createTitleScreen } from "../components/TitleScreen.ts";
+import { createDayKiteSetup } from "../components/DayKiteSetup.ts";
 import { createLyricDisplay } from "../components/LyricDisplay.ts";
 import { createPlayerControls } from "../components/PlayerControls.ts";
 import { createEndingOverlay } from "../components/EndingOverlay.ts";
+import { createDayKiteScene } from "../scenes/DayKiteScene.ts";
+import type { DayKiteScene } from "../scenes/DayKiteScene.ts";
 import { createMockPlayer } from "../state/mockPlayer.ts";
+import type { SongPlayer } from "../state/TextAliveController.ts";
 import { getCurrentLyric, getCurrentSection } from "../state/lyricTiming.ts";
 import { SONG_DURATION } from "../data/mockLyrics.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
+import type { KiteConfig, SelectedLyric } from "../types/kite.ts";
 
 export function mountApp(root: HTMLElement) {
-  root.classList.add("lake-app");
+  root.classList.add("kite-app");
 
-  const stage = document.createElement("div");
-  stage.className = "stage";
-  root.appendChild(stage);
+  let kiteConfig: KiteConfig | null = null;
+  let selectedLyrics: SelectedLyric[] = [];
 
-  const title = document.createElement("p");
-  title.className = "app-title";
-  title.textContent = "ことばの湖、ひびく未来";
-  stage.appendChild(title);
+  let titleScreen: ReturnType<typeof createTitleScreen> | null = null;
+  let setupScreen: ReturnType<typeof createDayKiteSetup> | null = null;
+  let kiteScene: DayKiteScene | null = null;
+  let kiteSceneContainer: HTMLDivElement | null = null;
+  let lyricDisplay: ReturnType<typeof createLyricDisplay> | null = null;
+  let controls: ReturnType<typeof createPlayerControls> | null = null;
+  let ending: ReturnType<typeof createEndingOverlay> | null = null;
+  let player: SongPlayer | null = null;
+  let resizeHandler: (() => void) | null = null;
 
-  const hint = document.createElement("p");
-  hint.className = "app-hint";
-  hint.textContent = "歌詞に触れると、湖に波紋が広がります。";
-  stage.appendChild(hint);
+  function teardownPlayingLayer() {
+    if (player) {
+      player.dispose();
+      player = null;
+    }
+    if (controls) {
+      controls.dispose();
+      controls = null;
+    }
+    if (lyricDisplay) {
+      lyricDisplay.dispose();
+      lyricDisplay = null;
+    }
+    if (ending) {
+      ending.dispose();
+      ending = null;
+    }
+    if (kiteScene) {
+      kiteScene.dispose();
+      kiteScene = null;
+    }
+    if (kiteSceneContainer) {
+      kiteSceneContainer.remove();
+      kiteSceneContainer = null;
+    }
+    if (resizeHandler) {
+      window.removeEventListener("resize", resizeHandler);
+      resizeHandler = null;
+    }
+  }
 
-  const lake = createLakeCanvas(stage, {
-    onLakeClick: (x, y) => {
-      lake.addRipple(x, y, "neutral", 0.6);
-    },
-  });
+  function teardownTitle() {
+    if (titleScreen) {
+      titleScreen.dispose();
+      titleScreen = null;
+    }
+  }
 
-  const lyrics = createLyricDisplay(stage, {
-    onWordClick: (text, x, y) => {
-      const category = classifyWord(text);
-      lake.addRipple(x, y, category, 1);
-      lake.addSelectedWord(text, x, y, category);
-      lake.spawnBurst(x, y, category);
-    },
-  });
+  function teardownSetup() {
+    if (setupScreen) {
+      setupScreen.dispose();
+      setupScreen = null;
+    }
+  }
 
-  const ending = createEndingOverlay(root, {
-    onReset: () => {
-      player.reset();
-      lake.clearAll();
-      ending.hide();
-      hint.classList.remove("is-hidden");
-    },
-  });
+  function goTitle() {
+    teardownPlayingLayer();
+    teardownSetup();
+    selectedLyrics = [];
+    kiteConfig = null;
+    titleScreen = createTitleScreen(root, {
+      onStart: () => {
+        goSetup();
+      },
+    });
+  }
 
-  const player = createMockPlayer({
-    onTimeUpdate: (time) => {
-      lake.setTime(time);
-      lake.setSection(getCurrentSection(time));
-      lyrics.render(getCurrentLyric(time));
-      controls.update(time);
-    },
-    onPlayStateChange: (isPlaying) => {
-      controls.setPlaying(isPlaying);
-      if (isPlaying) {
-        hint.classList.add("is-hidden");
-      }
-    },
-    onEnded: () => {
-      lake.setSection("ended");
-      ending.show(lake.getSelected());
-    },
-  });
+  function goSetup() {
+    teardownTitle();
+    setupScreen = createDayKiteSetup(root, {
+      onBack: () => {
+        goTitle();
+      },
+      onComplete: (config) => {
+        kiteConfig = config;
+        void goPlaying();
+      },
+    });
+  }
 
-  const controls = createPlayerControls(root, {
-    duration: SONG_DURATION,
-    onPlay: () => player.play(),
-    onPause: () => player.pause(),
-    onReset: () => {
-      player.reset();
-      lake.clearAll();
-      ending.hide();
-      hint.classList.remove("is-hidden");
-    },
-    onSeek: (time) => {
-      player.seek(time);
-    },
-  });
+  async function goPlaying() {
+    if (!kiteConfig) return;
+    teardownSetup();
+    selectedLyrics = [];
 
-  controls.update(0);
-  lyrics.render(getCurrentLyric(0));
+    const stage = document.createElement("div");
+    stage.className = "play-stage";
+    root.appendChild(stage);
+    kiteSceneContainer = stage;
+
+    kiteScene = await createDayKiteScene(stage);
+    kiteScene.setKiteConfig(kiteConfig);
+
+    resizeHandler = () => {
+      kiteScene?.resize();
+    };
+    window.addEventListener("resize", resizeHandler);
+
+    lyricDisplay = createLyricDisplay(stage, {
+      onWordClick: (text, x, y, line) => {
+        const category = classifyWord(text);
+        const lyric: SelectedLyric = {
+          text,
+          time: line.time,
+          category,
+          position: { x, y },
+          selectedAt: performance.now() / 1000,
+        };
+        selectedLyrics.push(lyric);
+        kiteScene?.dropLyric(lyric);
+      },
+    });
+
+    ending = createEndingOverlay(root, {
+      onReplay: () => {
+        ending?.hide();
+        kiteScene?.clearAll();
+        selectedLyrics = [];
+        player?.reset();
+        player?.play();
+      },
+      onTitle: () => {
+        goTitle();
+      },
+    });
+
+    player = createMockPlayer({
+      onTimeUpdate: (t) => {
+        kiteScene?.setTime(t);
+        kiteScene?.setSection(getCurrentSection(t));
+        lyricDisplay?.render(getCurrentLyric(t));
+        controls?.update(t);
+      },
+      onPlayStateChange: (isPlaying) => {
+        controls?.setPlaying(isPlaying);
+      },
+      onEnded: () => {
+        kiteScene?.setSection("ended");
+        if (ending && kiteConfig) {
+          ending.show({
+            kiteConfig,
+            selectedLyrics,
+          });
+        }
+      },
+    });
+
+    controls = createPlayerControls(stage, {
+      duration: SONG_DURATION,
+      onPlay: () => player?.play(),
+      onPause: () => player?.pause(),
+      onReset: () => {
+        player?.reset();
+        kiteScene?.clearAll();
+        selectedLyrics = [];
+        ending?.hide();
+      },
+      onSeek: (t) => player?.seek(t),
+    });
+
+    controls.update(0);
+    lyricDisplay.render(getCurrentLyric(0));
+
+    // 自動再生
+    player.play();
+  }
 
   function dispose() {
-    player.dispose();
-    lake.dispose();
-    lyrics.dispose();
-    controls.dispose();
-    ending.dispose();
+    teardownPlayingLayer();
+    teardownSetup();
+    teardownTitle();
   }
+
+  goTitle();
 
   return { dispose };
 }

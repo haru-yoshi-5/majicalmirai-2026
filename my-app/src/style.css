@@ -4,7 +4,7 @@
   --color-base: #0a1230;
   --color-horizon: #1a3a72;
   --color-glow: #aee0ff;
-  --color-text: #e8f3ff;
+  --color-text: #f4faff;
   --color-text-soft: rgba(232, 243, 255, 0.7);
   --font-poetic:
     "Hiragino Sans", "Yu Gothic UI", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial,
@@ -20,7 +20,7 @@ body {
   margin: 0;
   padding: 0;
   height: 100%;
-  background: #03061a;
+  background: #050912;
   color: var(--color-text);
   font-family: var(--font-poetic);
   letter-spacing: 0.06em;
@@ -36,13 +36,329 @@ body {
   overflow: hidden;
 }
 
-.lake-app {
+.kite-app {
   position: relative;
   width: 100%;
   height: 100%;
+  background: radial-gradient(ellipse at top, #0e1a3a 0%, #050912 70%);
 }
 
-.stage {
+/* ------- タイトル ------- */
+.title-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 1s ease;
+  z-index: 5;
+}
+
+.title-screen.is-visible {
+  opacity: 1;
+}
+
+.title-inner {
+  text-align: center;
+  padding: 32px;
+}
+
+.title-sub-top {
+  margin: 0 0 18px;
+  font-size: 12px;
+  letter-spacing: 0.5em;
+  color: rgba(232, 243, 255, 0.55);
+}
+
+.title-main {
+  margin: 0 0 18px;
+  font-size: clamp(40px, 7vw, 80px);
+  font-weight: 300;
+  letter-spacing: 0.22em;
+  text-shadow:
+    0 0 24px rgba(170, 220, 255, 0.65),
+    0 0 60px rgba(130, 180, 240, 0.4);
+}
+
+.title-sub {
+  margin: 0 0 36px;
+  font-size: clamp(13px, 1.4vw, 17px);
+  letter-spacing: 0.3em;
+  color: rgba(232, 243, 255, 0.75);
+}
+
+.title-start {
+  appearance: none;
+  background: rgba(170, 220, 255, 0.12);
+  border: 1px solid rgba(170, 220, 255, 0.4);
+  border-radius: 999px;
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 14px;
+  letter-spacing: 0.4em;
+  padding: 14px 40px;
+  cursor: pointer;
+  transition:
+    background 0.3s ease,
+    border-color 0.3s ease,
+    transform 0.3s ease;
+}
+
+.title-start:hover {
+  background: rgba(170, 220, 255, 0.25);
+  border-color: rgba(170, 220, 255, 0.7);
+  transform: translateY(-1px);
+}
+
+/* ------- 凧づくり ------- */
+.setup-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  z-index: 5;
+  overflow-y: auto;
+}
+
+.setup-screen.is-visible {
+  opacity: 1;
+}
+
+.setup-card {
+  width: min(92vw, 720px);
+  padding: 28px 36px;
+  border-radius: 18px;
+  background: rgba(10, 18, 38, 0.65);
+  border: 1px solid rgba(170, 220, 255, 0.16);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: 0 10px 60px rgba(0, 20, 60, 0.5);
+}
+
+.setup-heading {
+  margin: 0 0 10px;
+  font-size: clamp(20px, 2.4vw, 28px);
+  font-weight: 300;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+
+.setup-lead {
+  margin: 0 0 22px;
+  font-size: 12px;
+  letter-spacing: 0.2em;
+  color: rgba(232, 243, 255, 0.65);
+  text-align: center;
+}
+
+.setup-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 160px;
+  margin-bottom: 22px;
+}
+
+.kite-preview {
+  --kite-color: #5fa8ff;
+  position: relative;
+  width: 110px;
+  height: 130px;
+  background: var(--kite-color);
+  filter: drop-shadow(0 12px 18px rgba(0, 30, 60, 0.45))
+    drop-shadow(0 0 18px color-mix(in srgb, var(--kite-color) 65%, transparent));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  transition:
+    background 0.3s ease,
+    clip-path 0.3s ease;
+}
+
+.kite-shape-large {
+  clip-path: polygon(8% 0, 92% 0, 100% 100%, 0 100%);
+}
+
+.kite-shape-diamond {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+
+.kite-shape-swallow {
+  clip-path: polygon(50% 0, 100% 55%, 70% 70%, 50% 100%, 30% 70%, 0 55%);
+}
+
+.kite-preview-wish {
+  position: relative;
+  z-index: 1;
+  text-shadow:
+    0 0 12px rgba(0, 0, 0, 0.4),
+    0 0 4px rgba(0, 0, 0, 0.5);
+}
+
+.kite-preview::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.25),
+    rgba(255, 255, 255, 0) 60%,
+    rgba(0, 0, 0, 0.15)
+  );
+}
+
+.kite-pattern-ripple::after,
+.kite-pattern-wind::after,
+.kite-pattern-star::after,
+.kite-pattern-sound::after {
+  content: "";
+  position: absolute;
+  inset: 12%;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+  opacity: 0.65;
+}
+
+.kite-pattern-ripple::after {
+  background-image: radial-gradient(
+    circle,
+    transparent 28%,
+    rgba(255, 255, 255, 0.45) 30%,
+    transparent 36%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 56%,
+    rgba(255, 255, 255, 0.25) 68%,
+    transparent 74%
+  );
+}
+
+.kite-pattern-wind::after {
+  background-image: repeating-linear-gradient(
+    160deg,
+    transparent 0 14px,
+    rgba(255, 255, 255, 0.35) 14px 17px
+  );
+}
+
+.kite-pattern-star::after {
+  background-image:
+    radial-gradient(circle, rgba(255, 255, 255, 0.9) 0 4%, transparent 5%),
+    radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.6) 0 3%, transparent 4%),
+    radial-gradient(circle at 70% 35%, rgba(255, 255, 255, 0.55) 0 2.5%, transparent 3.5%),
+    radial-gradient(circle at 35% 70%, rgba(255, 255, 255, 0.5) 0 2.5%, transparent 3.5%),
+    radial-gradient(circle at 75% 75%, rgba(255, 255, 255, 0.45) 0 2%, transparent 3%);
+}
+
+.kite-pattern-sound::after {
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 12px,
+    rgba(255, 255, 255, 0.35) 12px 13px
+  );
+}
+
+.setup-group {
+  margin-bottom: 16px;
+}
+
+.setup-group-label {
+  margin: 0 0 6px;
+  font-size: 11px;
+  letter-spacing: 0.36em;
+  color: rgba(232, 243, 255, 0.6);
+}
+
+.setup-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.setup-option {
+  appearance: none;
+  background: rgba(170, 220, 255, 0.06);
+  border: 1px solid rgba(170, 220, 255, 0.18);
+  color: var(--color-text);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.15em;
+  padding: 8px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.setup-option:hover {
+  background: rgba(170, 220, 255, 0.16);
+  border-color: rgba(170, 220, 255, 0.35);
+}
+
+.setup-option.is-active {
+  background: rgba(170, 220, 255, 0.28);
+  border-color: rgba(170, 220, 255, 0.7);
+  color: #fff;
+  box-shadow: 0 0 16px rgba(170, 220, 255, 0.35);
+}
+
+.setup-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.setup-back {
+  appearance: none;
+  background: transparent;
+  border: 1px solid rgba(170, 220, 255, 0.18);
+  border-radius: 999px;
+  color: rgba(232, 243, 255, 0.75);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.3em;
+  padding: 10px 20px;
+  cursor: pointer;
+}
+
+.setup-back:hover {
+  border-color: rgba(170, 220, 255, 0.4);
+  color: #fff;
+}
+
+.setup-go {
+  appearance: none;
+  background: linear-gradient(135deg, rgba(170, 220, 255, 0.45), rgba(220, 200, 255, 0.5));
+  border: 1px solid rgba(220, 240, 255, 0.6);
+  border-radius: 999px;
+  color: #f4faff;
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.36em;
+  padding: 12px 30px;
+  cursor: pointer;
+  box-shadow: 0 6px 28px rgba(160, 200, 255, 0.35);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.setup-go:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 36px rgba(170, 220, 255, 0.55);
+}
+
+/* ------- プレイ画面 ------- */
+.play-stage {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -50,58 +366,23 @@ body {
   overflow: hidden;
 }
 
-.lake-canvas {
+.day-kite-canvas {
   position: absolute;
   inset: 0;
-  width: 100%;
-  height: 100%;
   display: block;
-}
-
-.app-title {
-  position: absolute;
-  top: 4.5vh;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  font-size: clamp(13px, 1.2vw, 16px);
-  font-weight: 300;
-  letter-spacing: 0.45em;
-  color: rgba(232, 243, 255, 0.55);
-  text-shadow: 0 0 16px rgba(120, 180, 230, 0.25);
-  pointer-events: none;
-  white-space: nowrap;
-}
-
-.app-hint {
-  position: absolute;
-  top: 9vh;
-  left: 50%;
-  transform: translateX(-50%);
-  margin: 0;
-  font-size: clamp(11px, 0.95vw, 13px);
-  font-weight: 300;
-  letter-spacing: 0.3em;
-  color: rgba(232, 243, 255, 0.32);
-  pointer-events: none;
-  transition: opacity 1.6s ease;
-  white-space: nowrap;
-}
-
-.app-hint.is-hidden {
-  opacity: 0;
 }
 
 .lyric-display {
   position: absolute;
-  top: 30%;
+  bottom: 18%;
   left: 50%;
-  transform: translate(-50%, -50%);
+  transform: translateX(-50%);
   width: min(86vw, 920px);
   text-align: center;
   pointer-events: none;
   opacity: 0;
   transition: opacity 1.4s ease;
+  z-index: 4;
 }
 
 .lyric-display.is-visible {
@@ -124,7 +405,7 @@ body {
   border: none;
   color: var(--color-text);
   font-family: inherit;
-  font-size: clamp(22px, 3.4vw, 44px);
+  font-size: clamp(20px, 3vw, 38px);
   font-weight: 300;
   letter-spacing: 0.16em;
   padding: 0.15em 0.25em;
@@ -135,8 +416,8 @@ body {
     text-shadow 0.6s ease,
     filter 0.6s ease;
   text-shadow:
-    0 0 18px rgba(170, 220, 255, 0.35),
-    0 0 36px rgba(110, 170, 220, 0.18);
+    0 0 18px rgba(170, 220, 255, 0.4),
+    0 0 36px rgba(110, 170, 220, 0.2);
   animation: floatWord 6s ease-in-out infinite;
   animation-delay: calc(var(--i) * 0.3s);
   border-radius: 8px;
@@ -146,8 +427,8 @@ body {
 .lyric-word:focus-visible {
   color: #f4faff;
   text-shadow:
-    0 0 24px rgba(200, 235, 255, 0.85),
-    0 0 50px rgba(150, 210, 255, 0.45);
+    0 0 24px rgba(200, 235, 255, 0.9),
+    0 0 50px rgba(150, 210, 255, 0.5);
   filter: drop-shadow(0 0 6px rgba(170, 220, 255, 0.55));
   outline: none;
 }
@@ -169,7 +450,6 @@ body {
 @keyframes touchPulse {
   0% {
     transform: scale(1);
-    text-shadow: 0 0 24px rgba(220, 240, 255, 1);
   }
   60% {
     transform: scale(1.18);
@@ -179,13 +459,13 @@ body {
   }
   100% {
     transform: scale(1);
-    text-shadow: 0 0 18px rgba(170, 220, 255, 0.35);
   }
 }
 
+/* ------- プレイヤーUI ------- */
 .player-controls {
   position: absolute;
-  bottom: 4vh;
+  bottom: 3.5vh;
   left: 50%;
   transform: translateX(-50%);
   display: flex;
@@ -199,7 +479,7 @@ body {
   -webkit-backdrop-filter: blur(14px);
   box-shadow: 0 6px 40px rgba(0, 20, 50, 0.45);
   min-width: min(80vw, 540px);
-  z-index: 5;
+  z-index: 6;
 }
 
 .player-button {
@@ -261,6 +541,7 @@ body {
   text-align: right;
 }
 
+/* ------- エンディング ------- */
 .ending-overlay {
   position: absolute;
   inset: 0;
@@ -270,7 +551,7 @@ body {
   background: radial-gradient(ellipse at center, rgba(6, 12, 30, 0.4), rgba(2, 4, 14, 0.85));
   opacity: 0;
   pointer-events: none;
-  transition: opacity 2s ease;
+  transition: opacity 1.6s ease;
   z-index: 10;
 }
 
@@ -283,26 +564,26 @@ body {
   text-align: center;
   padding: 38px 48px;
   border-radius: 18px;
-  background: rgba(10, 18, 38, 0.55);
+  background: rgba(10, 18, 38, 0.6);
   border: 1px solid rgba(170, 220, 255, 0.16);
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
-  max-width: min(86vw, 520px);
+  max-width: min(86vw, 560px);
   box-shadow: 0 10px 60px rgba(0, 20, 60, 0.5);
 }
 
 .ending-headline {
   margin: 0 0 12px;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.5em;
   color: rgba(232, 243, 255, 0.55);
 }
 
 .ending-title {
-  margin: 0 0 28px;
-  font-size: clamp(28px, 4.5vw, 44px);
+  margin: 0 0 24px;
+  font-size: clamp(26px, 4.5vw, 42px);
   font-weight: 300;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.16em;
   color: #f4faff;
   text-shadow:
     0 0 18px rgba(170, 220, 255, 0.55),
@@ -310,46 +591,71 @@ body {
 }
 
 .ending-label {
-  margin: 0 0 8px;
+  margin: 14px 0 6px;
   font-size: 11px;
   letter-spacing: 0.4em;
   color: rgba(232, 243, 255, 0.5);
 }
 
+.ending-last-lyric {
+  margin: 0 0 4px;
+  font-size: clamp(15px, 1.6vw, 19px);
+  letter-spacing: 0.16em;
+  color: rgba(232, 243, 255, 0.92);
+}
+
 .ending-words {
-  margin: 0 0 28px;
-  font-size: clamp(14px, 1.4vw, 18px);
+  margin: 0 0 22px;
+  font-size: clamp(13px, 1.3vw, 16px);
   letter-spacing: 0.18em;
   color: rgba(232, 243, 255, 0.85);
   line-height: 1.9;
 }
 
-.ending-reset {
+.ending-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.ending-button {
   appearance: none;
   background: rgba(170, 220, 255, 0.08);
   border: 1px solid rgba(170, 220, 255, 0.3);
   border-radius: 999px;
   color: var(--color-text);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
   letter-spacing: 0.3em;
-  padding: 12px 28px;
+  padding: 12px 24px;
   cursor: pointer;
   transition:
     background 0.3s ease,
     border-color 0.3s ease;
 }
 
-.ending-reset:hover {
-  background: rgba(170, 220, 255, 0.18);
+.ending-button:hover {
+  background: rgba(170, 220, 255, 0.2);
   border-color: rgba(170, 220, 255, 0.55);
 }
 
+.ending-button-primary {
+  background: linear-gradient(135deg, rgba(170, 220, 255, 0.35), rgba(220, 200, 255, 0.4));
+  border-color: rgba(220, 240, 255, 0.6);
+  color: #f4faff;
+  box-shadow: 0 6px 24px rgba(160, 200, 255, 0.35);
+}
+
+.ending-button-primary:hover {
+  box-shadow: 0 10px 30px rgba(170, 220, 255, 0.55);
+}
+
 @media (max-width: 600px) {
-  .app-title {
-    letter-spacing: 0.3em;
-  }
   .player-controls {
     min-width: 88vw;
+  }
+  .setup-card {
+    padding: 22px 20px;
   }
 }

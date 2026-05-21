@@ -1,12 +1,7 @@
 import { SONG_DURATION } from "../data/mockLyrics.ts";
+import type { SongPlayer, SongPlayerEvents } from "./TextAliveController.ts";
 
-export interface MockPlayerEvents {
-  onTimeUpdate: (time: number) => void;
-  onPlayStateChange: (isPlaying: boolean) => void;
-  onEnded: () => void;
-}
-
-export function createMockPlayer(events: MockPlayerEvents) {
+export function createMockPlayer(events: SongPlayerEvents): SongPlayer {
   let currentTime = 0;
   let isPlaying = false;
   let lastTick = 0;
@@ -71,4 +66,4 @@ export function createMockPlayer(events: MockPlayerEvents) {
   };
 }
 
-export type MockPlayer = ReturnType<typeof createMockPlayer>;
+export type MockPlayer = SongPlayer;

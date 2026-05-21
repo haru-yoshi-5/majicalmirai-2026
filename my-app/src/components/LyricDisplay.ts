@@ -1,7 +1,7 @@
 import type { LyricLine } from "../types/lyric.ts";
 
 export interface LyricDisplayOptions {
-  onWordClick: (text: string, clickX: number, clickY: number) => void;
+  onWordClick: (text: string, clickX: number, clickY: number, line: LyricLine) => void;
 }
 
 export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOptions) {
@@ -19,7 +19,6 @@ export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOpt
   function splitToWords(text: string): string[] {
     const tokens = text.split(/(\s+)/).filter((t) => t.trim().length > 0);
     if (tokens.length >= 2) return tokens;
-    // 単一の文だった場合、3〜5文字単位で分割して触りやすくする
     const chunks: string[] = [];
     let i = 0;
     while (i < text.length) {
@@ -63,24 +62,15 @@ export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOpt
         const cy = rect.top + rect.height / 2 - parentRect.top;
         span.classList.add("is-touched");
         window.setTimeout(() => span.classList.remove("is-touched"), 500);
-        options.onWordClick(token, cx, cy);
+        options.onWordClick(token, cx, cy, line);
       });
       lineEl.appendChild(span);
     });
 
     root.appendChild(lineEl);
-    // 次フレームでフェードイン
     requestAnimationFrame(() => {
       root.classList.add("is-visible");
     });
-  }
-
-  function show() {
-    root.style.opacity = "";
-  }
-
-  function hide() {
-    root.style.opacity = "0";
   }
 
   function dispose() {
@@ -90,8 +80,6 @@ export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOpt
   return {
     root,
     render,
-    show,
-    hide,
     dispose,
   };
 }
