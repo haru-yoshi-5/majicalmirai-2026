@@ -87,70 +87,106 @@ For GitHub Actions, consider using [`voidzero-dev/setup-vp`](https://github.com/
 - [ ] Run `vp check` and `vp test` to validate changes.
 <!--VITE PLUS END-->
 
-# プロジェクト：ことばの湖、ひびく未来
+# プロジェクト：湖風の歌詞凧
 
 マジカルミライ2026 プログラミングコンテスト向けの Web リリックアプリ。
-テーマ「湖のソナーレ」をもとに、ユーザーが歌詞に触れると湖に波紋が広がり、1曲の最後に自分だけの湖面アートが完成する作品。
+浜松まつりの凧揚げ文化 × 2026 テーマ「湖のソナーレ」。
+ユーザーは曲開始前に自分の凧を作り、曲中に歌詞をクリックすると湖に波紋が広がり、
+波紋が湖風になって凧を空へ揚げる。最後にクリックした歌詞から凧の名前が生成される。
 
 ## 重要
 
 - **仕様書を必ず先に読む**：[`../docs/PROJECT_SPEC.md`](../docs/PROJECT_SPEC.md) がこの作品の唯一の仕様の源。実装で迷ったらここに戻る。
-- **アート寄りのリリック体験**：スコア、コンボ、判定、失敗演出、ゲーム的UIは入れない。クリックは「歌詞を湖に響かせる」ためのもので、勝ち負けではない。
-- **テーマ「湖のソナーレ」との接続を最優先**：派手さよりも、湖・水面・反射・波紋・光・透明感を大切にする。
-- **TextAlive App API は Phase 3**：まずモックデータで美しく動く MVP を維持する。差し替えやすい設計を崩さない。
+- **アート寄りのリリック体験**：スコア、コンボ、判定、失敗演出、ゲーム的UIは入れない。クリックは「湖風を起こして凧を揚げる」ためのもので、勝ち負けではない。
+- **歌詞 → 湖の波紋 → 湖風 → 凧上昇** の変換体験を必ず作る。「クリックしたら凧に文字が出る」だけにしない。
+- **自分の凧が主役**：周囲の凧（communityKite）は背景演出として扱い、自分の凧を邪魔しない。
+- **TextAlive App API は Phase 3**：まずモックデータで美しく動く MVP を作る。差し替えやすい設計を崩さない。
 
 ## 技術構成
 
-- Vite+（vp CLI）+ TypeScript の **Vanilla** 構成（React/Vue 等は使わない）
-- 描画は Canvas 2D。アニメーションは `requestAnimationFrame`
-- 外部ライブラリは必要最小限
+- Vite+（`vp` CLI）+ TypeScript の **Vanilla** 構成（React/Vue は使わない）
+- 2D リアルタイム描画は **PixiJS**（湖・波紋・風の流線・自分の凧・周囲の凧・粒子）
+- DOM はタイトル画面・凧づくりUI・歌詞表示・プレイヤーUI・エンディングUI など最小限
+- 画面状態管理：`scene = "title" | "setup" | "playing" | "ending"`
+- アニメーションは PixiJS の ticker（必要に応じて `requestAnimationFrame`）
+- TextAlive 連携は `state/TextAliveController.ts` として分離し Phase 3 で実装
 
-## ディレクトリ構成
+## 現在の状態（2026-05-21 時点）
+
+- **`../docs/PROJECT_SPEC.md` は新作品「湖風の歌詞凧」で更新済み**
+- **`src/` 配下には旧作品「ことばの湖、ひびく未来」の MVP がそのまま残っている**
+  - 次の実装ステップで全面置換予定（仕様書 §21 Phase 1 の 15 項目）
+  - 旧 `components/LakeCanvas.ts` / `utils/generateLakeTitle.ts` は新作品では使わない
+- **PixiJS はまだ未導入**：`vp add pixi.js` で追加する想定
+- `index.html` の `<title>` も旧作品名のまま → 新作品名に更新が必要
+
+## ディレクトリ構成（実装後の目標形）
 
 ```
 src/
-  main.ts                  // エントリーポイント
-  style.css                // 全体スタイル
-  app/App.ts               // アプリ全体の組み立て
+  main.ts                       // エントリーポイント
+  style.css                     // 全体スタイル
+  app/
+    App.ts                      // シーン管理・全体組み立て
   components/
-    LakeCanvas.ts          // 湖面Canvas（背景・粒子・波紋・湖面文字・星座）
-    LyricDisplay.ts        // 中央の歌詞表示とクリックハンドラ
-    PlayerControls.ts      // 再生・停止・リセット・進行バー
-    EndingOverlay.ts       // 曲終了時のエンディング画面
-  data/mockLyrics.ts       // モック歌詞とセクション境界
+    TitleScreen.ts              // タイトル画面 DOM
+    DayKiteSetup.ts             // 凧づくり画面 DOM
+    LyricDisplay.ts             // 現在歌詞表示とクリックハンドラ
+    PlayerControls.ts           // 再生・停止・リセット・進行バー
+    EndingOverlay.ts            // エンディング画面 DOM
+  scenes/
+    DayKiteScene.ts             // PixiJS シーン本体（湖・凧・風・周囲の凧）
+  data/
+    mockLyrics.ts               // モック歌詞とセクション境界
   state/
-    mockPlayer.ts          // モック再生時間の管理（TextAlive差し替え対象）
-    lyricTiming.ts         // 現在歌詞・セクションの算出
-  types/lyric.ts           // 共通型
+    mockPlayer.ts               // モック再生時間（TextAlive 差し替え対象）
+    lyricTiming.ts              // 現在歌詞・セクションの算出
+    TextAliveController.ts      // TextAlive 連携スケルトン（Phase 3）
+  types/
+    kite.ts                     // KiteConfig / CommunityKite / SelectedLyric
+    lyric.ts                    // LyricLine / SongSection / WordCategory
   utils/
-    classifyWord.ts        // 単語分類（bright/deep/sound/airy/neutral）と色
-    generateLakeTitle.ts   // 湖タイトル生成
+    classifyWord.ts             // 歌詞分類（bright/sound/airy/deep/wish/neutral）
+    generateKiteName.ts         // 最後の歌詞 + kiteConfig.pattern から凧名生成
+    generateCommunityKite.ts    // 周囲の凧の自動生成
 ```
 
-新規ファイルを足すときも、Canvas描画は `LakeCanvas.ts` に集約し、UI/HTML側のクリック・表示は `components/*` 側に置く責務分離を守る。
+新規ファイルを足すときも、PixiJS 描画は `scenes/DayKiteScene.ts` に集約し、
+DOM/HTML 側のクリック・表示は `components/*` 側に置く責務分離を守る。
 
 ## 開発フロー
 
 - 起動: `vp dev`（このディレクトリで）
 - 検査: `vp check`（format + lint + 型 をまとめて。`--fix` で自動修正）
 - ビルド: `vp build`
-- 依存追加が必要なら `vp add <pkg>`（pnpm/npm/yarn を直接呼ばない）
+- 依存追加: `vp add <pkg>`（pnpm/npm/yarn を直接呼ばない）
 
 ## コーディング規約
 
 - `tsconfig.json` で `verbatimModuleSyntax: true` のため、型のみの import は `import type` で書く
 - 同じく `allowImportingTsExtensions: true` なので相対 import は `.ts` 拡張子付きで書く（既存に倣う）
 - `noUnusedLocals` / `noUnusedParameters` が有効。未使用は消すか、export してインタフェースの一部として残す
-- ファイルは **UTF-8 (BOMなし)** で保存する
+- ファイルは **UTF-8（BOMなし）** で保存する
+- 回答・コミットメッセージ・コードコメントは原則 **日本語**
 
-## 演出を足すときの指針
+## エージェント間の同期（重要）
 
-仕様書 §11 の Phase 順で進める。MVP（Phase 1）は完成済み。
-次は Phase 2 の演出強化：
+このディレクトリには Codex 用の `AGENTS.md` と Claude Code 用の `CLAUDE.md` が
+**同じ内容で**置かれている。プロジェクト固有方針を更新するときは
+**両方を同時に**更新し、ずれを残さないこと。
+Vite+ 自動生成ブロック（`<!--VITE PLUS START-->` 〜 `<!--VITE PLUS END-->`）は
+`vp config` 管理なので手動編集しない。
 
-- bridge での「過去に選んだ言葉が浮上」演出
-- chorus / finalChorus での文字発光の強化
-- 反射文字・粒子のクオリティアップ
-- レスポンシブ最適化
+## 実装の進め方
 
-Phase 3 で TextAlive を導入するとき、`state/mockPlayer.ts` と同じインタフェースで `state/textAlivePlayer.ts` を作り、`app/App.ts` の生成箇所だけを差し替える設計を保つ。歌詞も同じ `LyricLine` 型に揃える。
+仕様書 §21 の Phase 順で進める。
+
+- **Phase 1: MVP（未着手・最優先）**
+  タイトル / 凧づくり / モックプレイヤー / モック歌詞同期 /
+  歌詞クリック → 湖に落ちる → 波紋 → 風の流線 → 自分の凧上昇 → 凧に模様・文字が増える /
+  周囲の凧の出現 / エンディング表示 / 最後の歌詞から凧名生成
+- **Phase 2: 演出強化** — 分類別の空・湖・風変化、サビでの群舞、湖面反射、
+  五線譜風凧糸、風の渦、localStorage による過去凧表示
+- **Phase 3: TextAlive 連携** — `state/mockPlayer.ts` と同じインタフェースで
+  `state/TextAliveController.ts` を実装し、`app/App.ts` の生成箇所だけ差し替える設計を保つ。
+  歌詞も同じ `LyricLine` 型に揃える。
