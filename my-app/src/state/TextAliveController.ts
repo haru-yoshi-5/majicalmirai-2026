@@ -1,3 +1,4 @@
+import { Player } from "textalive-app-api";
 import { SONG_DURATION } from "../data/mockLyrics.ts";
 
 export interface SongPlayerEvents {
@@ -17,11 +18,19 @@ export interface SongPlayer {
   dispose: () => void;
 }
 
+// TextAlive App API の開発者トークン。Phase 3 で本物に差し替える前提のプレースホルダ。
+// 本番では環境変数や外部設定から注入する想定で、コミット用のリポジトリに本物の値を直書きしない。
+const TEXTALIVE_APP_TOKEN = "test";
+
 export function createTextAliveController(_events: SongPlayerEvents): SongPlayer {
   // Phase 3 で TextAlive App API と接続する。
-  // 現状はインタフェース合わせのスケルトン実装で、何も再生しない。
+  // 現状は Player の初期化だけ済ませたスケルトン実装で、まだ実楽曲は再生しない。
   // app/App.ts では createMockPlayer の代わりにこれを差し替えるだけで切り替えられる。
   let currentTime = 0;
+
+  const player = new Player({
+    app: { token: TEXTALIVE_APP_TOKEN },
+  });
 
   return {
     play() {},
@@ -41,6 +50,8 @@ export function createTextAliveController(_events: SongPlayerEvents): SongPlayer
     isPlaying() {
       return false;
     },
-    dispose() {},
+    dispose() {
+      player.dispose();
+    },
   };
 }
