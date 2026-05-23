@@ -1,5 +1,11 @@
 import { Application, Container, Graphics, Text } from "pixi.js";
-import type { CommunityKite, KiteColor, KiteConfig, SelectedLyric } from "../types/kite.ts";
+import type {
+  CommunityKite,
+  KiteColor,
+  KiteConfig,
+  PastKiteRecord,
+  SelectedLyric,
+} from "../types/kite.ts";
 import type { SongSection, WordCategory } from "../types/lyric.ts";
 import { categoryColor } from "../utils/classifyWord.ts";
 import {
@@ -62,11 +68,33 @@ interface CommunityKiteFx {
   baseY: number;
 }
 
+interface VortexFx {
+  gfx: Graphics;
+  x: number;
+  y: number;
+  life: number;
+  maxLife: number;
+  maxRadius: number;
+  hue: number;
+  rotation: number;
+  rotSpeed: number;
+  turns: number;
+}
+
+interface PastKiteFx {
+  gfx: Container;
+  baseX: number;
+  baseY: number;
+  phase: number;
+  sway: number;
+}
+
 export interface DayKiteScene {
   setKiteConfig: (config: KiteConfig) => void;
   setSection: (section: SongSection) => void;
   setTime: (time: number) => void;
   dropLyric: (lyric: SelectedLyric) => void;
+  addPastKites: (records: ReadonlyArray<PastKiteRecord>) => void;
   clearAll: () => void;
   resize: () => void;
   dispose: () => void;
@@ -98,8 +126,10 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
   // レイヤー
   const skyLayer = new Container();
   const lakeLayer = new Container();
+  const pastKiteLayer = new Container();
   const reflectionLayer = new Container();
   const rippleLayer = new Container();
+  const vortexLayer = new Container();
   const windLayer = new Container();
   const communityLayer = new Container();
   const fallingLyricLayer = new Container();
@@ -108,8 +138,10 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
 
   app.stage.addChild(skyLayer);
   app.stage.addChild(lakeLayer);
+  app.stage.addChild(pastKiteLayer);
   app.stage.addChild(reflectionLayer);
   app.stage.addChild(rippleLayer);
+  app.stage.addChild(vortexLayer);
   app.stage.addChild(windLayer);
   app.stage.addChild(communityLayer);
   app.stage.addChild(fallingLyricLayer);
@@ -135,12 +167,20 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
   let kiteLiftBoost = 0;
   let totalElapsedMs = 0;
   let ambientSpawnTimer = 0;
+  // 歌詞分類による空・湖・風のムード（直近のクリック傾向で hue が動く）
+  let moodHue = 200;
+  let moodIntensity = 0;
+  // サビ突入時のフレア演出タイマー（一時的な舞い上がり強調）
+  let kiteFlareTimer = 0;
 
   const ripples: RippleFx[] = [];
   const winds: WindStreakFx[] = [];
   const fallingLyrics: FallingLyricFx[] = [];
   const particles: ParticleFx[] = [];
   const community: CommunityKiteFx[] = [];
+  const vortices: VortexFx[] = [];
+  let vortexSpawnTimer = 0;
+  const pastKites: PastKiteFx[] = [];
 
   // 自分の凧 Container
   const playerKite = new Container();
@@ -167,6 +207,16 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
   playerKiteLayer.addChild(playerKiteString);
   playerKiteLayer.addChild(playerKite);
 
+  // 湖面に映る凧の反射（本体と模様のみ、Y軸反転で表現）
+  const playerReflection = new Container();
+  const playerReflectionBody = new Graphics();
+  const playerReflectionPattern = new Graphics();
+  playerReflection.addChild(playerReflectionBody);
+  playerReflection.addChild(playerReflectionPattern);
+  playerReflection.scale.set(1, -1);
+  playerReflection.alpha = 0.32;
+  reflectionLayer.addChild(playerReflection);
+
   // 選んだ歌詞が凧に刻まれていく（テキスト群）
   const inscribedLyrics: Text[] = [];
 
@@ -179,10 +229,20 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     const baseY = horizonY - 30; // 湖面少し上
     const topY = app.screen.height * 0.18;
     const lift = Math.min(1, kiteLift + kiteLiftBoost);
-    const swayX = Math.sin(totalElapsedMs * 0.0008) * 18 * (0.4 + lift * 0.6);
+    // サビ系セクションでは sway 幅を広げて派手に舞わせる
+    const swayMul = section === "chorus" || section === "finalChorus" ? 1.75 : 1.0;
+    // フレア中は更に大きく舞う
+    const flareMul = 1 + kiteFlareTimer * 0.45;
+    const swayX = Math.sin(totalElapsedMs * 0.0008) * 18 * (0.4 + lift * 0.6) * swayMul * flareMul;
+    // 縦方向の浮遊（サビ中は呼吸するように上下する）
+    const verticalBob =
+      (section === "chorus" || section === "finalChorus" ? 1 : 0) *
+      Math.sin(totalElapsedMs * 0.0011) *
+      8 *
+      (0.6 + kiteFlareTimer * 0.5);
     return {
       x: app.screen.width * 0.5 + swayX,
-      y: baseY + (topY - baseY) * lift,
+      y: baseY + (topY - baseY) * lift + verticalBob,
     };
   }
 
@@ -221,6 +281,18 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
       topR = 240;
       topG = 200 + intensity * 30;
       topB = 140;
+    }
+
+    // 歌詞分類で hue が動くムード色をミックス（基調を残しつつ気分を寄せる）
+    const moodWeight = moodIntensity * 0.4;
+    if (moodWeight > 0.001) {
+      const moodColor = hslToHex(moodHue, 0.55, 0.6);
+      const mR = (moodColor >> 16) & 0xff;
+      const mG = (moodColor >> 8) & 0xff;
+      const mB = moodColor & 0xff;
+      topR = topR * (1 - moodWeight) + mR * moodWeight;
+      topG = topG * (1 - moodWeight) + mG * moodWeight;
+      topB = topB * (1 - moodWeight) + mB * moodWeight;
     }
 
     midR = Math.min(255, topR * 0.7 + 80);
@@ -354,6 +426,10 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     buildKiteBody(playerKiteBody, kiteConfig, size);
     buildKitePattern(playerKitePattern, kiteConfig, size);
 
+    // 反射用も同じ形を描き直す（透明度はContainer側で持たせる）
+    buildKiteBody(playerReflectionBody, kiteConfig, size, 0.85);
+    buildKitePattern(playerReflectionPattern, kiteConfig, size, 0.7);
+
     playerKiteShadow.clear();
     playerKiteShadow.ellipse(0, size * 1.4, size * 0.9, size * 0.18);
     playerKiteShadow.fill({ color: 0x000000, alpha: 0.18 });
@@ -424,6 +500,24 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     });
   }
 
+  function spawnVortex(x: number, y: number, hue: number, scale = 1) {
+    const g = new Graphics();
+    vortexLayer.addChild(g);
+    const maxRadius = Math.min(app.screen.width, app.screen.height) * 0.13 * scale;
+    vortices.push({
+      gfx: g,
+      x,
+      y,
+      life: 0,
+      maxLife: 1.6,
+      maxRadius,
+      hue,
+      rotation: Math.random() * Math.PI * 2,
+      rotSpeed: (Math.random() > 0.5 ? 1 : -1) * (1.4 + Math.random() * 0.8),
+      turns: 2.4 + Math.random() * 1.2,
+    });
+  }
+
   function spawnParticles(x: number, y: number, count: number, hue: number) {
     for (let i = 0; i < count; i += 1) {
       const g = new Graphics();
@@ -487,6 +581,49 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     community.push({ data, gfx, baseY: data.y });
   }
 
+  function addPastKites(records: ReadonlyArray<PastKiteRecord>) {
+    for (const r of records) {
+      const c = new Container();
+      const body = new Graphics();
+      const pattern = new Graphics();
+      const size = Math.min(app.screen.width, app.screen.height) * 0.052;
+      buildKiteBody(body, r.kiteConfig, size, 0.85);
+      buildKitePattern(pattern, r.kiteConfig, size, 0.7);
+      c.addChild(body);
+      c.addChild(pattern);
+
+      const label = r.selectedTexts[r.selectedTexts.length - 1] ?? r.kiteConfig.wish;
+      if (label) {
+        const t = new Text({
+          text: label.slice(0, 3),
+          style: {
+            fontFamily: '"Hiragino Sans","Yu Gothic UI",sans-serif',
+            fontSize: Math.max(9, size * 0.42),
+            fill: 0xffffff,
+            fontWeight: "300",
+          },
+        });
+        t.anchor.set(0.5);
+        t.alpha = 0.75;
+        c.addChild(t);
+      }
+
+      // 遠景にうっすら配置する
+      c.alpha = 0.38;
+      const baseX = app.screen.width * (0.1 + Math.random() * 0.8);
+      const baseY = app.screen.height * (0.13 + Math.random() * 0.22);
+      c.position.set(baseX, baseY);
+      pastKiteLayer.addChild(c);
+      pastKites.push({
+        gfx: c,
+        baseX,
+        baseY,
+        phase: Math.random() * Math.PI * 2,
+        sway: 12 + Math.random() * 14,
+      });
+    }
+  }
+
   function addAmbientCommunityKite() {
     const data = generateAmbientCommunityKite({
       width: app.screen.width,
@@ -525,9 +662,20 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     inscribedLyrics.push(t);
   }
 
+  function applyLyricMood(category: WordCategory) {
+    const target = categoryColor(category).hue;
+    // hue は循環なので最短経路で寄せる
+    const diff = ((target - moodHue + 540) % 360) - 180;
+    moodHue = (moodHue + diff * 0.35 + 360) % 360;
+    moodIntensity = Math.min(1, moodIntensity + 0.22);
+  }
+
   function dropLyric(lyric: SelectedLyric) {
     const { x, y } = lyric.position;
     const horizonY = getHorizonY();
+
+    // ムード（空・湖の雰囲気）を歌詞カテゴリに寄せる
+    applyLyricMood(lyric.category);
 
     // 1) 歌詞が湖に向かって落ちる
     spawnFallingLyric(x, y, lyric.text, lyric.category);
@@ -558,6 +706,14 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     // 6) 周囲の凧を追加（30%確率）
     if (Math.random() < 0.45) {
       addCommunityKiteFromLyric(lyric);
+    }
+
+    // 7) wish カテゴリは特別に湖面に渦を起こす
+    if (lyric.category === "wish") {
+      const wishColor = categoryColor(lyric.category);
+      window.setTimeout(() => {
+        spawnVortex(lakeX, lakeY, wishColor.hue, 1.2);
+      }, 900);
     }
   }
 
@@ -590,21 +746,79 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     kiteLift += (targetBaseLift - kiteLift) * Math.min(1, dt * 0.4);
     kiteLiftBoost *= Math.exp(-dt * 1.2);
 
+    // ムードの減衰（時間とともに基調色に戻る）
+    moodIntensity *= Math.exp(-dt * 0.18);
+
+    // フレア（サビ突入の一時的な強調演出）の減衰
+    if (kiteFlareTimer > 0) {
+      kiteFlareTimer = Math.max(0, kiteFlareTimer - dt);
+    }
+
     // 自分の凧のレイアウト
     const anchor = getKiteAnchor();
-    const rot = Math.sin(totalElapsedMs * 0.0014) * 0.05 * (0.5 + intensity * 0.6);
+    // サビ系・フレア中は回転振幅を拡大
+    const isChorusSection = section === "chorus" || section === "finalChorus";
+    const rotAmplitude =
+      0.05 * (0.5 + intensity * 0.6) * (isChorusSection ? 2.6 : 1) + kiteFlareTimer * 0.06;
+    const rotSpeed = isChorusSection ? 0.0024 : 0.0014;
+    const rot = Math.sin(totalElapsedMs * rotSpeed) * rotAmplitude;
     playerKite.position.set(anchor.x, anchor.y);
     playerKite.rotation = rot;
+    // サビでは凧が呼吸するように脈動、フレア中はピーク強調
+    const pulse =
+      1 +
+      (isChorusSection ? 0.06 : 0.02) * Math.sin(totalElapsedMs * 0.0035) +
+      kiteFlareTimer * 0.05;
+    playerKite.scale.set(pulse);
 
-    // 凧糸
+    // 湖面の反射（Y軸対称位置に配置し、湖面の揺らぎを微小に表現）
+    const horizonY = getHorizonY();
+    const reflectionY = horizonY + (horizonY - anchor.y);
+    const waterShimmerX = Math.sin(totalElapsedMs * 0.0023) * 4;
+    const waterShimmerY = Math.cos(totalElapsedMs * 0.0019) * 1.6;
+    playerReflection.position.set(anchor.x + waterShimmerX, reflectionY + waterShimmerY);
+    // 反射は元の凧と反対方向に微小に回転（水面のゆらぎ感）
+    playerReflection.rotation = -rot * 0.85;
+    // 湖面の輝きでわずかに alpha 変化
+    playerReflection.alpha = 0.28 + Math.sin(totalElapsedMs * 0.0017) * 0.05;
+
+    // 凧糸（五線譜風：5本の平行な曲線として描く）
     playerKiteString.clear();
     const stringStartX = app.screen.width * 0.5;
     const stringStartY = app.screen.height + 20;
-    playerKiteString.moveTo(stringStartX, stringStartY);
-    const midX = (stringStartX + anchor.x) * 0.5 + Math.sin(totalElapsedMs * 0.001) * 20;
-    const midY = (stringStartY + anchor.y) * 0.5 + 40;
-    playerKiteString.quadraticCurveTo(midX, midY, anchor.x, anchor.y);
-    playerKiteString.stroke({ color: 0xffffff, alpha: 0.25, width: 1 });
+    const isChorusLike = section === "chorus" || section === "finalChorus";
+    const phaseSpeed = isChorusLike ? 0.0028 : 0.0014;
+    const stringSegments = 26;
+    const stringSpacing = 4.6;
+    for (let lineIdx = 0; lineIdx < 5; lineIdx += 1) {
+      const offset = (lineIdx - 2) * stringSpacing;
+      // 中央2本ほど太く・はっきり、外側に行くほど薄く
+      const distFromCenter = Math.abs(lineIdx - 2);
+      const lineAlpha = 0.32 - distFromCenter * 0.07;
+      const lineWidth = 1.0 - distFromCenter * 0.15;
+      playerKiteString.moveTo(stringStartX + offset, stringStartY);
+      for (let s = 1; s <= stringSegments; s += 1) {
+        const t = s / stringSegments;
+        const baseX = stringStartX + (anchor.x - stringStartX) * t;
+        const baseY = stringStartY + (anchor.y - stringStartY) * t;
+        // 糸全体としての揺らぎ（横方向にゆっくり波打つ）
+        const sway = Math.sin(totalElapsedMs * 0.001 + t * Math.PI * 0.8) * 18 * (1 - t * 0.4);
+        // 五線譜の上を音符が走るような細かい波（サビで加速）
+        const ripple =
+          Math.sin(t * Math.PI * 4 + totalElapsedMs * phaseSpeed + lineIdx * 0.6) *
+          (isChorusLike ? 4.5 : 2.4);
+        // 5本を垂直方向に少しずらして平行に走らせる
+        const perpFactor = 1 - t * 0.65; // 凧側に近づくほど線が集約する
+        const px = baseX + sway + offset * perpFactor;
+        const py = baseY + ripple;
+        playerKiteString.lineTo(px, py);
+      }
+      playerKiteString.stroke({
+        color: 0xffffff,
+        alpha: lineAlpha,
+        width: Math.max(0.6, lineWidth),
+      });
+    }
 
     // 波紋
     for (let i = ripples.length - 1; i >= 0; i -= 1) {
@@ -675,6 +889,64 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
       }
     }
 
+    // 風の渦（螺旋）
+    for (let i = vortices.length - 1; i >= 0; i -= 1) {
+      const v = vortices[i]!;
+      v.life += dt;
+      if (v.life >= v.maxLife) {
+        vortexLayer.removeChild(v.gfx);
+        v.gfx.destroy();
+        vortices.splice(i, 1);
+        continue;
+      }
+      const ratio = v.life / v.maxLife;
+      // フェードイン → フェードアウト
+      const fade = ratio < 0.3 ? ratio / 0.3 : 1 - (ratio - 0.3) / 0.7;
+      const alpha = Math.max(0, fade) * 0.7;
+      const radius = v.maxRadius * (0.4 + ratio * 0.6);
+      v.rotation += v.rotSpeed * dt;
+
+      v.gfx.clear();
+      const points = 80;
+      const color = hslToHex(v.hue, 0.65, 0.78);
+      for (let s = 0; s < points; s += 1) {
+        const t = s / points;
+        const theta = t * Math.PI * 2 * v.turns + v.rotation;
+        const r = radius * t;
+        const px = v.x + Math.cos(theta) * r;
+        const py = v.y + Math.sin(theta) * r * 0.55; // 湖面なので縦に圧縮
+        if (s === 0) v.gfx.moveTo(px, py);
+        else v.gfx.lineTo(px, py);
+      }
+      v.gfx.stroke({ color, alpha, width: 1.6 });
+      // 内側にもうひとつ細い螺旋
+      for (let s = 0; s < points; s += 1) {
+        const t = s / points;
+        const theta = t * Math.PI * 2 * v.turns + v.rotation + Math.PI;
+        const r = radius * t * 0.6;
+        const px = v.x + Math.cos(theta) * r;
+        const py = v.y + Math.sin(theta) * r * 0.55;
+        if (s === 0) v.gfx.moveTo(px, py);
+        else v.gfx.lineTo(px, py);
+      }
+      v.gfx.stroke({ color: hslToHex(v.hue, 0.55, 0.9), alpha: alpha * 0.6, width: 1 });
+    }
+
+    // finalChorus 中はランダムに渦が湧く
+    if (section === "finalChorus") {
+      vortexSpawnTimer += dt;
+      const interval = 3.4 + Math.random() * 1.5;
+      if (vortexSpawnTimer > interval) {
+        vortexSpawnTimer = 0;
+        const horizonY = getHorizonY();
+        const x = app.screen.width * (0.18 + Math.random() * 0.64);
+        const y = horizonY + app.screen.height * (0.05 + Math.random() * 0.18);
+        spawnVortex(x, y, moodHue, 0.7 + Math.random() * 0.4);
+      }
+    } else {
+      vortexSpawnTimer = 0;
+    }
+
     // 粒子
     for (let i = particles.length - 1; i >= 0; i -= 1) {
       const p = particles[i]!;
@@ -692,13 +964,37 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
       p.gfx.alpha = (1 - ratio) * 0.9;
     }
 
-    // 周囲の凧（漂い）
+    // 周囲の凧（漂い・サビでは群舞として一斉に揺れる）
+    const isChorusForFlock = section === "chorus" || section === "finalChorus";
+    const flockPhase = totalElapsedMs * 0.0007;
+    const flockSwayAmp = isChorusForFlock ? 16 : 0;
+    const flockLiftAmp = section === "finalChorus" ? 20 : section === "chorus" ? 9 : 0;
     for (const c of community) {
-      const sway = Math.sin(totalElapsedMs * 0.0009 + c.data.phase) * 8;
-      const liftSway =
-        section === "finalChorus" ? -30 - Math.sin(totalElapsedMs * 0.001 + c.data.phase) * 12 : 0;
-      c.gfx.position.set(c.data.x + sway, c.baseY - intensity * 14 + liftSway);
-      c.gfx.rotation = Math.sin(totalElapsedMs * 0.0011 + c.data.phase) * 0.1;
+      // 個体の独立な揺らぎ
+      const individualSway = Math.sin(totalElapsedMs * 0.0009 + c.data.phase) * 8;
+      // 群舞：すべての凧が同じ位相で横揺れする（サビ中だけ振幅が出る）
+      const flockSway = Math.sin(flockPhase + c.data.phase * 0.3) * flockSwayAmp;
+      // finalChorus での舞い上がり
+      const baseLift =
+        section === "finalChorus" ? -34 - Math.sin(totalElapsedMs * 0.001 + c.data.phase) * 12 : 0;
+      // 群れ全体が縦に呼吸するように上下する
+      const flockLift = Math.cos(flockPhase * 0.7) * flockLiftAmp;
+
+      c.gfx.position.set(
+        c.data.x + individualSway + flockSway,
+        c.baseY - intensity * 14 + baseLift + flockLift,
+      );
+      const indivRot = Math.sin(totalElapsedMs * 0.0011 + c.data.phase) * 0.1;
+      const flockRot = isChorusForFlock ? Math.sin(flockPhase * 1.1) * 0.07 : 0;
+      c.gfx.rotation = indivRot + flockRot;
+    }
+
+    // 過去の自分の凧（遠景でゆったり漂う）
+    for (const p of pastKites) {
+      const dx = Math.sin(totalElapsedMs * 0.0005 + p.phase) * p.sway;
+      const dy = Math.cos(totalElapsedMs * 0.0006 + p.phase) * 6;
+      p.gfx.position.set(p.baseX + dx, p.baseY + dy);
+      p.gfx.rotation = Math.sin(totalElapsedMs * 0.0008 + p.phase) * 0.08;
     }
 
     // アンビエントな周囲の凧の自動出現（少しずつ）
@@ -728,6 +1024,10 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
   }
 
   function setSection(s: SongSection) {
+    // サビ系セクションに新しく入った瞬間にフレアタイマーを起こす
+    if (s !== section && (s === "chorus" || s === "finalChorus")) {
+      kiteFlareTimer = 1.8;
+    }
     section = s;
   }
 
@@ -757,6 +1057,12 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
       p.gfx.destroy();
     }
     particles.length = 0;
+    for (const v of vortices) {
+      vortexLayer.removeChild(v.gfx);
+      v.gfx.destroy();
+    }
+    vortices.length = 0;
+    vortexSpawnTimer = 0;
     for (const c of community) {
       communityLayer.removeChild(c.gfx);
       c.gfx.destroy({ children: true });
@@ -785,6 +1091,7 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     setSection,
     setTime,
     dropLyric,
+    addPastKites,
     clearAll,
     resize,
     dispose,

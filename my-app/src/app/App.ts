@@ -15,6 +15,8 @@ import type {
 import { createMockLyricSource, createTextAliveLyricSource } from "../state/lyricSource.ts";
 import type { LyricSource } from "../state/lyricSource.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
+import { generateKiteName } from "../utils/generateKiteName.ts";
+import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
 import type { KiteConfig, SelectedLyric } from "../types/kite.ts";
 
 // 「こたえて」(imie) — マジカルミライ2026 プログラミング・コンテスト課題曲（グランプリ）
@@ -179,6 +181,11 @@ export function mountApp(root: HTMLElement) {
 
     kiteScene = await createDayKiteScene(stage);
     kiteScene.setKiteConfig(kiteConfig);
+    // 過去にこの端末で揚げた凧を遠景に並べる
+    const pastKites = loadPastKites();
+    if (pastKites.length > 0) {
+      kiteScene.addPastKites(pastKites);
+    }
 
     resizeHandler = () => {
       kiteScene?.resize();

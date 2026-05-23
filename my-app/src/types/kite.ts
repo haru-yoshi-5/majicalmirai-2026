@@ -32,3 +32,10 @@ export interface CommunityKite {
   opacity: number;
   type: "lyric" | "community";
 }
+
+export interface PastKiteRecord {
+  name: string;
+  kiteConfig: KiteConfig;
+  selectedTexts: string[];
+  savedAt: number;
+}
