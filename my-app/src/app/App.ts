@@ -10,6 +10,8 @@ import type { SongPlayer } from "../state/TextAliveController.ts";
 import { getCurrentLyric, getCurrentSection } from "../state/lyricTiming.ts";
 import { SONG_DURATION } from "../data/mockLyrics.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
+import { generateKiteName } from "../utils/generateKiteName.ts";
+import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
 import type { KiteConfig, SelectedLyric } from "../types/kite.ts";
 
 export function mountApp(root: HTMLElement) {
@@ -110,6 +112,11 @@ export function mountApp(root: HTMLElement) {
 
     kiteScene = await createDayKiteScene(stage);
     kiteScene.setKiteConfig(kiteConfig);
+    // 過去にこの端末で揚げた凧を遠景に並べる
+    const pastKites = loadPastKites();
+    if (pastKites.length > 0) {
+      kiteScene.addPastKites(pastKites);
+    }
 
     resizeHandler = () => {
       kiteScene?.resize();
@@ -160,6 +167,22 @@ export function mountApp(root: HTMLElement) {
           ending.show({
             kiteConfig,
             selectedLyrics,
+          });
+          // 完成した凧を次回プレイの遠景に残すため localStorage に保存する
+          const last =
+            selectedLyrics.length > 0 ? selectedLyrics[selectedLyrics.length - 1]! : null;
+          const seen = new Set<string>();
+          const uniqueTexts: string[] = [];
+          for (const w of selectedLyrics) {
+            if (seen.has(w.text)) continue;
+            seen.add(w.text);
+            uniqueTexts.push(w.text);
+          }
+          savePastKite({
+            name: generateKiteName(last, kiteConfig),
+            kiteConfig,
+            selectedTexts: uniqueTexts,
+            savedAt: Date.now(),
           });
         }
       },
