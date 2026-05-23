@@ -6,11 +6,53 @@ import { createEndingOverlay } from "../components/EndingOverlay.ts";
 import { createDayKiteScene } from "../scenes/DayKiteScene.ts";
 import type { DayKiteScene } from "../scenes/DayKiteScene.ts";
 import { createMockPlayer } from "../state/mockPlayer.ts";
-import type { SongPlayer } from "../state/TextAliveController.ts";
-import { getCurrentLyric, getCurrentSection } from "../state/lyricTiming.ts";
-import { SONG_DURATION } from "../data/mockLyrics.ts";
+import { createTextAliveController } from "../state/TextAliveController.ts";
+import type {
+  SongPlayer,
+  SongPlayerEvents,
+  TextAliveBundle,
+} from "../state/TextAliveController.ts";
+import { createMockLyricSource, createTextAliveLyricSource } from "../state/lyricSource.ts";
+import type { LyricSource } from "../state/lyricSource.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
 import type { KiteConfig, SelectedLyric } from "../types/kite.ts";
+
+// 「こたえて」(imie) — マジカルミライ2026 プログラミング・コンテスト課題曲（グランプリ）
+const TEXTALIVE_SONG_URL = "https://piapro.jp/t/6W2N";
+
+function shouldUseMock(): boolean {
+  if (typeof window === "undefined") return true;
+  return new URLSearchParams(window.location.search).has("mock");
+}
+
+interface PlayerBundle {
+  player: SongPlayer;
+  lyricSource: LyricSource;
+}
+
+async function createPlayerBundle(
+  events: SongPlayerEvents,
+  useMock: boolean,
+): Promise<PlayerBundle> {
+  if (useMock) {
+    return {
+      player: createMockPlayer(events),
+      lyricSource: createMockLyricSource(),
+    };
+  }
+  const bundle: TextAliveBundle = await createTextAliveController(events, {
+    songUrl: TEXTALIVE_SONG_URL,
+  });
+  return {
+    player: bundle.player,
+    lyricSource: createTextAliveLyricSource({
+      lyrics: bundle.lyrics,
+      chorus: bundle.chorus,
+      duration: bundle.duration,
+      lastPhraseEnd: bundle.lastPhraseEnd,
+    }),
+  };
+}
 
 export function mountApp(root: HTMLElement) {
   root.classList.add("kite-app");
@@ -26,13 +68,39 @@ export function mountApp(root: HTMLElement) {
   let controls: ReturnType<typeof createPlayerControls> | null = null;
   let ending: ReturnType<typeof createEndingOverlay> | null = null;
   let player: SongPlayer | null = null;
+  let lyricSource: LyricSource | null = null;
+  let loadingEl: HTMLDivElement | null = null;
   let resizeHandler: (() => void) | null = null;
+
+  function showLoading(message: string) {
+    if (!loadingEl) {
+      loadingEl = document.createElement("div");
+      loadingEl.className = "loading-overlay";
+      root.appendChild(loadingEl);
+    }
+    loadingEl.textContent = message;
+    loadingEl.style.display = "flex";
+  }
+
+  function hideLoading() {
+    if (loadingEl) {
+      loadingEl.style.display = "none";
+    }
+  }
+
+  function teardownLoading() {
+    if (loadingEl) {
+      loadingEl.remove();
+      loadingEl = null;
+    }
+  }
 
   function teardownPlayingLayer() {
     if (player) {
       player.dispose();
       player = null;
     }
+    lyricSource = null;
     if (controls) {
       controls.dispose();
       controls = null;
@@ -57,6 +125,7 @@ export function mountApp(root: HTMLElement) {
       window.removeEventListener("resize", resizeHandler);
       resizeHandler = null;
     }
+    teardownLoading();
   }
 
   function teardownTitle() {
@@ -116,6 +185,47 @@ export function mountApp(root: HTMLElement) {
     };
     window.addEventListener("resize", resizeHandler);
 
+    const useMock = shouldUseMock();
+    showLoading(useMock ? "読み込み中…" : "TextAlive 楽曲を読み込み中…");
+
+    let bundle: PlayerBundle;
+    try {
+      bundle = await createPlayerBundle(
+        {
+          onTimeUpdate: (t) => {
+            kiteScene?.setTime(t);
+            if (lyricSource) {
+              kiteScene?.setSection(lyricSource.getCurrentSection(t));
+              lyricDisplay?.render(lyricSource.getCurrentLyric(t));
+            }
+            controls?.update(t);
+          },
+          onPlayStateChange: (isPlaying) => {
+            controls?.setPlaying(isPlaying);
+          },
+          onEnded: () => {
+            kiteScene?.setSection("ended");
+            if (ending && kiteConfig) {
+              ending.show({
+                kiteConfig,
+                selectedLyrics,
+              });
+            }
+          },
+        },
+        useMock,
+      );
+    } catch (err) {
+      console.error("プレイヤー初期化に失敗しました", err);
+      const message = err instanceof Error ? err.message : "プレイヤー初期化に失敗しました";
+      showLoading(`${message}\n（URL に ?mock=1 を付けるとモックで起動します）`);
+      return;
+    }
+
+    player = bundle.player;
+    lyricSource = bundle.lyricSource;
+    hideLoading();
+
     lyricDisplay = createLyricDisplay(stage, {
       onWordClick: (text, x, y, line) => {
         const category = classifyWord(text);
@@ -144,29 +254,8 @@ export function mountApp(root: HTMLElement) {
       },
     });
 
-    player = createMockPlayer({
-      onTimeUpdate: (t) => {
-        kiteScene?.setTime(t);
-        kiteScene?.setSection(getCurrentSection(t));
-        lyricDisplay?.render(getCurrentLyric(t));
-        controls?.update(t);
-      },
-      onPlayStateChange: (isPlaying) => {
-        controls?.setPlaying(isPlaying);
-      },
-      onEnded: () => {
-        kiteScene?.setSection("ended");
-        if (ending && kiteConfig) {
-          ending.show({
-            kiteConfig,
-            selectedLyrics,
-          });
-        }
-      },
-    });
-
     controls = createPlayerControls(stage, {
-      duration: SONG_DURATION,
+      duration: player.getDuration(),
       onPlay: () => player?.play(),
       onPause: () => player?.pause(),
       onReset: () => {
@@ -179,7 +268,7 @@ export function mountApp(root: HTMLElement) {
     });
 
     controls.update(0);
-    lyricDisplay.render(getCurrentLyric(0));
+    lyricDisplay.render(lyricSource.getCurrentLyric(0));
 
     // 自動再生
     player.play();
