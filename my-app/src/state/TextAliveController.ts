@@ -32,8 +32,24 @@ export interface TextAliveBundle {
   lastPhraseEnd: number;
 }
 
+/**
+ * 音楽地図（歌詞・サビ・ビート等）のバージョン固定用ID。
+ * 公式の課題曲ガイドラインで配布される訂正履歴IDを指定すると、
+ * 歌詞タイミングやサビ範囲が固定され、再解析の影響を受けなくなる。
+ * 未指定（0）のマップはそのデータを読み込まない＝解析待ちを短縮できる。
+ */
+export interface SongMapIds {
+  beatId?: number;
+  chordId?: number;
+  repetitiveSegmentId?: number;
+  lyricId?: number;
+  lyricDiffId?: number;
+}
+
 export interface TextAliveOptions {
   songUrl: string;
+  /** 音楽地図のバージョン固定ID。未指定ならビート/コードを読み込まない既定にフォールバック。 */
+  mapIds?: SongMapIds;
   appToken?: string;
   appName?: string;
 }
@@ -63,6 +79,30 @@ export function createTextAliveController(
     let lastTimeSec = 0;
     let resolved = false;
     let endedFired = false;
+
+    // 読み込みが進まないまま固まった場合の保険（無限ローディング防止）
+    const LOAD_TIMEOUT_MS = 30_000;
+    let loadTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearLoadTimer = () => {
+      if (loadTimer !== null) {
+        clearTimeout(loadTimer);
+        loadTimer = null;
+      }
+    };
+    const settleReject = (err: unknown) => {
+      if (resolved) return;
+      resolved = true;
+      clearLoadTimer();
+      reject(err instanceof Error ? err : new Error(String(err)));
+    };
+    loadTimer = setTimeout(() => {
+      settleReject(
+        new Error(
+          `TextAlive の読み込みが ${LOAD_TIMEOUT_MS / 1000} 秒以内に完了しませんでした。` +
+            "トークンの有効性・楽曲URL・ネットワーク接続を確認してください。",
+        ),
+      );
+    }, LOAD_TIMEOUT_MS);
 
     const durationSec = (): number => {
       const ms = player.video?.duration ?? 0;
@@ -117,17 +157,31 @@ export function createTextAliveController(
       onAppReady: (app: IPlayerApp) => {
         // TextAlive App Host に管理されていない場合は自前で楽曲を読み込む
         if (!app.managed) {
-          void player.createFromSongUrl(options.songUrl).catch((err: unknown) => {
-            if (!resolved) {
-              resolved = true;
-              reject(err instanceof Error ? err : new Error(String(err)));
-            }
-          });
+          // このアプリが使うのは歌詞(phrase)とサビ(getChoruses)だけ。
+          // コード進行・ビートは未使用なので読み込まない(0)ことで解析待ちを短縮する。
+          // lyricId / repetitiveSegmentId は未指定=最新リビジョンを取得する。
+          // 音楽地図のバージョン固定。未指定のマップ(0)は読み込まない。
+          const mapIds = options.mapIds ?? { beatId: 0, chordId: 0 };
+          void player
+            .createFromSongUrl(options.songUrl, { video: mapIds })
+            .catch((err: unknown) => {
+              settleReject(err);
+            });
         }
+      },
+      onError: (e: unknown) => {
+        // App 認可・楽曲読み込み・ネットワーク等で発生したエラー。
+        // ここで reject しないと resolve も reject もされず無限ローディングになる。
+        const message =
+          e instanceof Error
+            ? e.message
+            : ((e as { message?: string } | null)?.message ?? String(e));
+        settleReject(new Error(`TextAlive エラー: ${message}`));
       },
       onVideoReady: () => {
         if (resolved) return;
         resolved = true;
+        clearLoadTimer();
 
         const lyrics: LyricLine[] = [];
         let lastPhraseEndMs = 0;

@@ -17,10 +17,29 @@ import type { LyricSource } from "../state/lyricSource.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
 import { generateKiteName } from "../utils/generateKiteName.ts";
 import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
-import type { KiteConfig, SelectedLyric } from "../types/kite.ts";
+import type { KiteConfig, PastKiteRecord, SelectedLyric } from "../types/kite.ts";
 
 // 「こたえて」(imie) — マジカルミライ2026 プログラミング・コンテスト課題曲（グランプリ）
-const TEXTALIVE_SONG_URL = "https://piapro.jp/t/6W2N";
+//
+// 末尾にSongleのリビジョン(20251215164617)を付与している。これは必須の指定:
+//   公式ガイドラインの通り、楽曲URLは https://piapro.jp/t/曲ID/数字 の形式でないと
+//   正しく読み込めない。また未リビジョンの "piapro.jp/t/6W2N" を指定すると、TextAliveが
+//   内部で叩く songle.jp/songs/... がリビジョン付きURLへ302リダイレクトし、その302応答に
+//   Access-Control-Allow-Origin が無いためブラウザのCORSで弾かれ、読み込みが永遠に終わらない。
+// ※ 楽曲がSongleで再解析されるとリビジョン/各IDが変わる可能性あり。その際は公式配布値で更新する。
+const TEXTALIVE_SONG_URL = "https://piapro.jp/t/6W2N/20251215164617";
+
+// 音楽地図（歌詞・サビ等）のバージョン固定ID（公式ガイドライン配布値）。
+// 歌詞タイミングとサビ範囲を固定し、再解析の影響を受けないようにする。
+// このアプリはビート/コードを使わないため beatId/chordId は読み込まない(0)。
+//   ※ 公式の指定値に戻す場合は beatId:4827293, chordId:2963754 を設定する。
+const TEXTALIVE_SONG_MAP_IDS = {
+  beatId: 0,
+  chordId: 0,
+  repetitiveSegmentId: 3086261,
+  lyricId: 126519,
+  lyricDiffId: 28645,
+} as const;
 
 function shouldUseMock(): boolean {
   if (typeof window === "undefined") return true;
@@ -44,6 +63,7 @@ async function createPlayerBundle(
   }
   const bundle: TextAliveBundle = await createTextAliveController(events, {
     songUrl: TEXTALIVE_SONG_URL,
+    mapIds: TEXTALIVE_SONG_MAP_IDS,
   });
   return {
     player: bundle.player,
@@ -217,6 +237,17 @@ export function mountApp(root: HTMLElement) {
                 kiteConfig,
                 selectedLyrics,
               });
+              // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
+              // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
+              //   1プレイにつき1回だけ保存するガード（保存済みフラグ等）を入れるか検討する。
+              const lastSelected = selectedLyrics[selectedLyrics.length - 1] ?? null;
+              const record: PastKiteRecord = {
+                name: generateKiteName(lastSelected, kiteConfig),
+                kiteConfig,
+                selectedTexts: selectedLyrics.map((lyric) => lyric.text),
+                savedAt: Date.now(),
+              };
+              savePastKite(record);
             }
           },
         },

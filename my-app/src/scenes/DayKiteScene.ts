@@ -7,19 +7,14 @@ import type {
   SelectedLyric,
 } from "../types/kite.ts";
 import type { SongSection, WordCategory } from "../types/lyric.ts";
+import { KITE_COLORS } from "../theme/colors.ts";
 import { categoryColor } from "../utils/classifyWord.ts";
 import {
   generateAmbientCommunityKite,
   generateCommunityKiteFromLyric,
 } from "../utils/generateCommunityKite.ts";
 
-const KITE_COLOR_HEX: Record<KiteColor, number> = {
-  blue: 0x5fa8ff,
-  red: 0xff6f6a,
-  white: 0xf0f4ff,
-  purple: 0xb78bff,
-  gold: 0xffd66a,
-};
+const KITE_COLOR_HEX: Record<KiteColor, number> = KITE_COLORS;
 
 interface RippleFx {
   gfx: Graphics;
@@ -331,7 +326,7 @@ export async function createDayKiteScene(parent: HTMLElement): Promise<DayKiteSc
     }
     skyGfx.lineTo(w, horizonY);
     skyGfx.lineTo(0, horizonY);
-    skyGfx.fill({ color: 0x2a3a5a, alpha: 0.55 });
+    skyGfx.fill({ color: 0x88a7c0, alpha: 0.5 });
 
     // 湖
     lakeGfx.clear();

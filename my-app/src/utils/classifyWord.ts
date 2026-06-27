@@ -1,3 +1,4 @@
+import { CATEGORY_COLORS } from "../theme/colors.ts";
 import type { WordCategory } from "../types/lyric.ts";
 
 const BRIGHT = ["未来", "夢", "光", "ひかり", "希望", "輝", "明"];
@@ -35,19 +36,5 @@ export function categoryColor(cat: WordCategory): {
   glow: number;
   hue: number;
 } {
-  switch (cat) {
-    case "bright":
-      return { fill: 0xdcfaff, glow: 0xaae6ff, hue: 190 };
-    case "sound":
-      return { fill: 0xaaf0eb, glow: 0x78dce6, hue: 175 };
-    case "airy":
-      return { fill: 0xd2e6ff, glow: 0xb4d2ff, hue: 210 };
-    case "deep":
-      return { fill: 0xbeb4f0, glow: 0x8c78dc, hue: 255 };
-    case "wish":
-      return { fill: 0xfff0c8, glow: 0xffd278, hue: 45 };
-    case "neutral":
-    default:
-      return { fill: 0xdcebfa, glow: 0xaac8eb, hue: 200 };
-  }
+  return CATEGORY_COLORS[cat] ?? CATEGORY_COLORS.neutral;
 }
