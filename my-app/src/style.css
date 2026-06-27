@@ -108,27 +108,73 @@ body {
   color: var(--text-body);
 }
 
-.title-start {
-  appearance: none;
-  background: var(--ui-fill);
-  border: 1px solid var(--ui-line-strong);
-  border-radius: 999px;
-  color: var(--text-strong);
-  font-family: inherit;
-  font-size: 14px;
-  letter-spacing: 0.4em;
-  padding: 14px 40px;
-  cursor: pointer;
-  transition:
-    background 0.3s ease,
-    border-color 0.3s ease,
-    transform 0.3s ease;
+/* モード選択（昼の部／夜の部） */
+.title-modes {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
 }
 
-.title-start:hover {
-  background: var(--ui-fill-hover);
-  border-color: var(--brand);
-  transform: translateY(-1px);
+.title-mode {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  min-width: 148px;
+  padding: 16px 30px;
+  border-radius: 18px;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.title-mode-label {
+  font-size: clamp(16px, 2vw, 20px);
+  letter-spacing: 0.3em;
+}
+
+.title-mode-note {
+  font-size: 10px;
+  letter-spacing: 0.34em;
+  opacity: 0.85;
+}
+
+.title-mode-day {
+  background: linear-gradient(135deg, var(--brand-bright), var(--sky));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  color: var(--text-on-accent);
+  box-shadow: 0 8px 28px var(--brand-ring);
+}
+
+.title-mode-day:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px var(--brand-ring);
+}
+
+/* 夜の部は藍色のプレビュー。準備中は無効表示。 */
+.title-mode-night {
+  background: linear-gradient(135deg, var(--indigo-800), var(--indigo-900));
+  border: 1px solid rgba(120, 150, 230, 0.4);
+  color: #c2d2f0;
+}
+
+.title-mode-night:not(:disabled):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 36px rgba(12, 23, 64, 0.5);
+}
+
+.title-mode-night .title-mode-note {
+  color: var(--lantern);
+}
+
+.title-mode:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 /* ------- 凧づくり ------- */
@@ -500,6 +546,41 @@ body {
   }
 }
 
+/* ------- コーラス（主旋律に重ねる別レイヤー） ------- */
+.chorus-overlay {
+  position: absolute;
+  bottom: 27%;
+  left: 50%;
+  transform: translateX(-50%) translateY(6px);
+  display: inline-block;
+  max-width: min(86vw, 760px);
+  padding: 10px 22px;
+  border-radius: 16px;
+  /* 明るい昼背景でも読めるよう、暗い半透明パネル＋明るい文字で主旋律と差別化 */
+  background: rgba(18, 48, 59, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  text-align: center;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+  z-index: 4;
+  font-size: clamp(14px, 1.7vw, 21px);
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  line-height: 1.7;
+  color: #f4faff;
+  text-shadow: 0 1px 6px rgba(0, 20, 40, 0.5);
+}
+
+.chorus-overlay.is-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
 /* ------- プレイヤーUI ------- */
 .player-controls {
   position: absolute;
@@ -700,6 +781,40 @@ body {
   .setup-card {
     padding: 22px 20px;
   }
+}
+
+/* ------- ライセンス表記（TextAlive 利用明示・必須） ------- */
+.credit {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  z-index: 30;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  pointer-events: auto;
+  text-shadow: 0 1px 4px rgba(255, 255, 255, 0.6);
+}
+
+.credit a {
+  color: var(--text-body);
+  text-decoration: none;
+  border-bottom: 1px solid var(--ui-line);
+  transition:
+    color 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.credit a:hover {
+  color: var(--brand);
+  border-color: var(--brand);
+}
+
+.credit-sep {
+  opacity: 0.6;
 }
 
 /* ------- 再生開始プロンプト ------- */

@@ -8,6 +8,7 @@ import type { DayKiteScene } from "../scenes/DayKiteScene.ts";
 import { createMockPlayer } from "../state/mockPlayer.ts";
 import { createTextAliveController } from "../state/TextAliveController.ts";
 import type {
+  ChorusOverlayBlock,
   SongPlayer,
   SongPlayerEvents,
   TextAliveBundle,
@@ -70,14 +71,43 @@ async function createPlayerBundle(
     lyricSource: createTextAliveLyricSource({
       lyrics: bundle.lyrics,
       chorus: bundle.chorus,
+      chorusOverlays: bundle.chorusOverlays,
       duration: bundle.duration,
       lastPhraseEnd: bundle.lastPhraseEnd,
     }),
   };
 }
 
+// TextAlive App API のライセンス表記（必須）。
+// 利用している旨を、楽曲ページ または developer.textalive.jp へのリンク付きで常時表示する。
+function createCredit(root: HTMLElement) {
+  const credit = document.createElement("div");
+  credit.className = "credit";
+
+  const songLink = document.createElement("a");
+  songLink.href = "https://piapro.jp/t/6W2N";
+  songLink.target = "_blank";
+  songLink.rel = "noopener noreferrer";
+  songLink.textContent = "楽曲「こたえて」/ imie";
+
+  const sep = document.createElement("span");
+  sep.className = "credit-sep";
+  sep.textContent = "・";
+
+  const apiLink = document.createElement("a");
+  apiLink.href = "https://developer.textalive.jp/";
+  apiLink.target = "_blank";
+  apiLink.rel = "noopener noreferrer";
+  apiLink.textContent = "Powered by TextAlive";
+
+  credit.append(songLink, sep, apiLink);
+  root.appendChild(credit);
+  return credit;
+}
+
 export function mountApp(root: HTMLElement) {
   root.classList.add("kite-app");
+  createCredit(root);
 
   let kiteConfig: KiteConfig | null = null;
   let selectedLyrics: SelectedLyric[] = [];
@@ -87,6 +117,7 @@ export function mountApp(root: HTMLElement) {
   let kiteScene: DayKiteScene | null = null;
   let kiteSceneContainer: HTMLDivElement | null = null;
   let lyricDisplay: ReturnType<typeof createLyricDisplay> | null = null;
+  let chorusOverlayEl: HTMLDivElement | null = null;
   let controls: ReturnType<typeof createPlayerControls> | null = null;
   let ending: ReturnType<typeof createEndingOverlay> | null = null;
   let player: SongPlayer | null = null;
@@ -139,6 +170,20 @@ export function mountApp(root: HTMLElement) {
     }
   }
 
+  // 主旋律に重ねて表示するコーラス（3段落目）のブロックを描画する。
+  function renderChorusOverlay(block: ChorusOverlayBlock | null) {
+    if (!chorusOverlayEl) return;
+    if (!block) {
+      chorusOverlayEl.classList.remove("is-visible");
+      return;
+    }
+    if (chorusOverlayEl.dataset.text !== block.text) {
+      chorusOverlayEl.dataset.text = block.text;
+      chorusOverlayEl.textContent = block.text;
+    }
+    chorusOverlayEl.classList.add("is-visible");
+  }
+
   function teardownPlayingLayer() {
     if (player) {
       player.dispose();
@@ -152,6 +197,10 @@ export function mountApp(root: HTMLElement) {
     if (lyricDisplay) {
       lyricDisplay.dispose();
       lyricDisplay = null;
+    }
+    if (chorusOverlayEl) {
+      chorusOverlayEl.remove();
+      chorusOverlayEl = null;
     }
     if (ending) {
       ending.dispose();
@@ -221,6 +270,11 @@ export function mountApp(root: HTMLElement) {
     root.appendChild(stage);
     kiteSceneContainer = stage;
 
+    // 主旋律に重ねるコーラス（3段落目）の表示レイヤー
+    chorusOverlayEl = document.createElement("div");
+    chorusOverlayEl.className = "chorus-overlay";
+    stage.appendChild(chorusOverlayEl);
+
     kiteScene = await createDayKiteScene(stage);
     kiteScene.setKiteConfig(kiteConfig);
     // 過去にこの端末で揚げた凧を遠景に並べる
@@ -246,6 +300,7 @@ export function mountApp(root: HTMLElement) {
             if (lyricSource) {
               kiteScene?.setSection(lyricSource.getCurrentSection(t));
               lyricDisplay?.render(lyricSource.getCurrentLyric(t));
+              renderChorusOverlay(lyricSource.getChorusOverlay(t));
             }
             controls?.update(t);
           },

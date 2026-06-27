@@ -1,5 +1,8 @@
 export interface TitleScreenOptions {
+  /** 昼の部を開始（現在のMVP） */
   onStart: () => void;
+  /** 夜の部を開始。未指定なら「準備中」で無効表示にする。 */
+  onStartNight?: () => void;
 }
 
 export function createTitleScreen(parent: HTMLElement, options: TitleScreenOptions) {
@@ -21,18 +24,31 @@ export function createTitleScreen(parent: HTMLElement, options: TitleScreenOptio
   sub.className = "title-sub";
   sub.textContent = "歌詞の風で、祭りの空が広がっていく。";
 
-  const startButton = document.createElement("button");
-  startButton.type = "button";
-  startButton.className = "title-start";
-  startButton.textContent = "凧をつくる";
-  startButton.addEventListener("click", () => {
-    options.onStart();
+  // モード選択（昼の部／夜の部）
+  const modes = document.createElement("div");
+  modes.className = "title-modes";
+
+  const dayButton = createModeButton({
+    variant: "day",
+    label: "昼の部",
+    note: "あそぶ",
+    onClick: () => options.onStart(),
   });
+
+  const nightButton = createModeButton({
+    variant: "night",
+    label: "夜の部",
+    note: options.onStartNight ? "あそぶ" : "準備中",
+    onClick: options.onStartNight,
+  });
+
+  modes.appendChild(dayButton);
+  modes.appendChild(nightButton);
 
   inner.appendChild(subTop);
   inner.appendChild(title);
   inner.appendChild(sub);
-  inner.appendChild(startButton);
+  inner.appendChild(modes);
   root.appendChild(inner);
   parent.appendChild(root);
 
@@ -52,6 +68,39 @@ export function createTitleScreen(parent: HTMLElement, options: TitleScreenOptio
   requestAnimationFrame(() => show());
 
   return { root, show, hide, dispose };
+}
+
+interface ModeButtonOptions {
+  variant: "day" | "night";
+  label: string;
+  note: string;
+  /** 未指定なら無効（準備中）ボタンにする。 */
+  onClick?: () => void;
+}
+
+function createModeButton(opts: ModeButtonOptions): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `title-mode title-mode-${opts.variant}`;
+
+  const label = document.createElement("span");
+  label.className = "title-mode-label";
+  label.textContent = opts.label;
+
+  const note = document.createElement("span");
+  note.className = "title-mode-note";
+  note.textContent = opts.note;
+
+  button.append(label, note);
+
+  if (opts.onClick) {
+    const handler = opts.onClick;
+    button.addEventListener("click", () => handler());
+  } else {
+    button.disabled = true;
+  }
+
+  return button;
 }
 
 export type TitleScreen = ReturnType<typeof createTitleScreen>;

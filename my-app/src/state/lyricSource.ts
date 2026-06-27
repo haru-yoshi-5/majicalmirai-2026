@@ -1,5 +1,5 @@
 import type { LyricLine, SongSection } from "../types/lyric.ts";
-import type { ChorusRange } from "./TextAliveController.ts";
+import type { ChorusOverlayBlock, ChorusRange } from "./TextAliveController.ts";
 import { mockLyrics, SONG_DURATION } from "../data/mockLyrics.ts";
 import {
   getCurrentLyric as getCurrentLyricMock,
@@ -9,6 +9,8 @@ import {
 export interface LyricSource {
   getLyrics(): readonly LyricLine[];
   getCurrentLyric(time: number): LyricLine | null;
+  /** 主旋律に重ねて表示するコーラス・ブロック（無ければ null）。 */
+  getChorusOverlay(time: number): ChorusOverlayBlock | null;
   getCurrentSection(time: number): SongSection;
   getDuration(): number;
 }
@@ -20,6 +22,9 @@ export function createMockLyricSource(): LyricSource {
     },
     getCurrentLyric(time) {
       return getCurrentLyricMock(time);
+    },
+    getChorusOverlay() {
+      return null;
     },
     getCurrentSection(time) {
       return getCurrentSectionMock(time);
@@ -33,12 +38,13 @@ export function createMockLyricSource(): LyricSource {
 export interface TextAliveLyricInput {
   lyrics: readonly LyricLine[];
   chorus: readonly ChorusRange[];
+  chorusOverlays: readonly ChorusOverlayBlock[];
   duration: number;
   lastPhraseEnd: number;
 }
 
 export function createTextAliveLyricSource(input: TextAliveLyricInput): LyricSource {
-  const { lyrics, chorus, duration, lastPhraseEnd } = input;
+  const { lyrics, chorus, chorusOverlays, duration, lastPhraseEnd } = input;
   const introEnd = lyrics.length > 0 ? lyrics[0]!.time : 0;
   const outroStart = Math.max(lastPhraseEnd, chorus[chorus.length - 1]?.end ?? 0);
 
@@ -57,6 +63,12 @@ export function createTextAliveLyricSource(input: TextAliveLyricInput): LyricSou
         }
       }
       return current;
+    },
+    getChorusOverlay(time) {
+      for (const block of chorusOverlays) {
+        if (time >= block.start && time < block.end) return block;
+      }
+      return null;
     },
     getCurrentSection(time): SongSection {
       if (duration > 0 && time >= duration) return "ended";

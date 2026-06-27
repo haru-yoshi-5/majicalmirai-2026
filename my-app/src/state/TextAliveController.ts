@@ -1,5 +1,6 @@
 import { Player } from "textalive-app-api";
 import type { IPhrase, IPlayerApp, IRepetitiveSegment, IWord } from "textalive-app-api";
+import { chorusPhraseTimings } from "../data/chorusTimings.ts";
 import type { LyricLine } from "../types/lyric.ts";
 
 /**
@@ -25,6 +26,35 @@ function groupIntoBunsetsu(words: readonly IWord[]): string[] {
   return chunks;
 }
 
+/**
+ * コーラス（3段落目）の1ms問題を配布データで補正する。
+ * 主旋律（2段落目）はそのまま残し、コーラスは別レイヤーの「（…）」ブロックとして
+ * 区間中まとめて重ねて表示する。壊れた時刻のコーラス各フレーズはメインから取り除く。
+ * @returns 重ねて表示するコーラス・オーバーレイ（区間ごと）
+ */
+function buildChorusOverlays(lyrics: LyricLine[]): ChorusOverlayBlock[] {
+  const texts = chorusPhraseTimings.map((c) => c.text).filter((t) => t.length > 0);
+  if (texts.length === 0) return [];
+
+  // 壊れた時刻のコーラス各フレーズ（テキスト一致）をメインの流れから取り除く。
+  const chorusTextSet = new Set(texts);
+  for (let i = lyrics.length - 1; i >= 0; i -= 1) {
+    if (chorusTextSet.has(lyrics[i]!.text)) lyrics.splice(i, 1);
+  }
+
+  const start = Math.min(...chorusPhraseTimings.map((c) => c.startTime));
+  const end = Math.max(...chorusPhraseTimings.map((c) => c.endTime));
+
+  // 2フレーズを「（…）」で括った1ブロックにまとめる（各行を1チャンクとしてクリック可）。
+  const words = texts.map((t, i) => {
+    let w = t;
+    if (i === 0) w = `（${w}`;
+    if (i === texts.length - 1) w = `${w}）`;
+    return w;
+  });
+  return [{ start, end, text: `（${texts.join("　")}）`, words }];
+}
+
 export interface SongPlayerEvents {
   onTimeUpdate: (time: number) => void;
   onPlayStateChange: (isPlaying: boolean) => void;
@@ -47,10 +77,22 @@ export interface ChorusRange {
   end: number;
 }
 
+/**
+ * 主旋律に重ねて表示するコーラス（3段落目）のブロック。
+ * メインの歌詞表示とは別レイヤーで、区間中まとめて表示する。
+ */
+export interface ChorusOverlayBlock {
+  start: number;
+  end: number;
+  text: string;
+  words: readonly string[];
+}
+
 export interface TextAliveBundle {
   player: SongPlayer;
   lyrics: readonly LyricLine[];
   chorus: readonly ChorusRange[];
+  chorusOverlays: readonly ChorusOverlayBlock[];
   duration: number;
   lastPhraseEnd: number;
 }
@@ -223,6 +265,10 @@ export function createTextAliveController(
           phrase = phrase.next ?? null;
         }
 
+        // コーラス（3段落目）の1ms問題を配布データで補正する。
+        // 主旋律は残し、コーラスは別レイヤーのオーバーレイとして返す。
+        const chorusOverlays = buildChorusOverlays(lyrics);
+
         const chorus: ChorusRange[] = [];
         const choruses: IRepetitiveSegment[] = player.getChoruses() ?? [];
         for (const seg of choruses) {
@@ -236,6 +282,7 @@ export function createTextAliveController(
           player: songPlayer,
           lyrics,
           chorus,
+          chorusOverlays,
           duration: durationSec(),
           lastPhraseEnd: lastPhraseEndMs / 1000,
         });
