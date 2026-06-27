@@ -1,6 +1,29 @@
 import { Player } from "textalive-app-api";
-import type { IPhrase, IPlayerApp, IRepetitiveSegment } from "textalive-app-api";
+import type { IPhrase, IPlayerApp, IRepetitiveSegment, IWord } from "textalive-app-api";
 import type { LyricLine } from "../types/lyric.ts";
+
+/**
+ * TextAlive の形態素を文節くらいの塊にまとめる。
+ * 自立語で新しい塊を始め、付属語（助詞 P・助動詞 M・記号 S）と接頭詞 F の続きを連結する。
+ * 例: 君(N) の(P) こたえ(N) を(P) 聞か(V) せ(M) て(P) → 「君の」「こたえを」「聞かせて」
+ */
+function groupIntoBunsetsu(words: readonly IWord[]): string[] {
+  const chunks: string[] = [];
+  let prevWasPrefix = false;
+  for (const w of words) {
+    const text = w.text;
+    if (!text) continue;
+    const attachToPrev =
+      chunks.length > 0 && (w.pos === "P" || w.pos === "M" || w.pos === "S" || prevWasPrefix);
+    if (attachToPrev) {
+      chunks[chunks.length - 1] += text;
+    } else {
+      chunks.push(text);
+    }
+    prevWasPrefix = w.pos === "F"; // 接頭詞は次の語を連結（例: お+名前）
+  }
+  return chunks;
+}
 
 export interface SongPlayerEvents {
   onTimeUpdate: (time: number) => void;
@@ -187,9 +210,12 @@ export function createTextAliveController(
         let lastPhraseEndMs = 0;
         let phrase: IPhrase | null = player.video?.firstPhrase ?? null;
         while (phrase) {
+          // TextAlive の形態素を文節くらいの塊にまとめる（助詞などは前の語に連結）。
+          const words = groupIntoBunsetsu(phrase.children);
           lyrics.push({
             time: phrase.startTime / 1000,
             text: phrase.text,
+            words,
           });
           if (phrase.endTime > lastPhraseEndMs) {
             lastPhraseEndMs = phrase.endTime;

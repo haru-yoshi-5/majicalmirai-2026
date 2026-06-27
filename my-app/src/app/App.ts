@@ -104,10 +104,32 @@ export function mountApp(root: HTMLElement) {
     loadingEl.style.display = "flex";
   }
 
-  function hideLoading() {
-    if (loadingEl) {
-      loadingEl.style.display = "none";
+  // 読み込み完了後の「再生開始」表示。
+  // 音声付き再生はブラウザの自動再生ポリシーでユーザー操作直後しか許可されないため、
+  // 読み込み中オーバーレイをクリック可能なスタートボタンに変えて、押下時に再生する。
+  function showStartPrompt(onStart: () => void) {
+    if (!loadingEl) {
+      loadingEl = document.createElement("div");
+      loadingEl.className = "loading-overlay";
+      root.appendChild(loadingEl);
     }
+    loadingEl.textContent = "";
+    loadingEl.style.pointerEvents = "auto";
+    loadingEl.style.display = "flex";
+
+    const startButton = document.createElement("button");
+    startButton.type = "button";
+    startButton.className = "start-prompt";
+    startButton.textContent = "▶  タップして再生";
+    startButton.addEventListener(
+      "click",
+      () => {
+        onStart();
+        teardownLoading();
+      },
+      { once: true },
+    );
+    loadingEl.appendChild(startButton);
   }
 
   function teardownLoading() {
@@ -262,7 +284,6 @@ export function mountApp(root: HTMLElement) {
 
     player = bundle.player;
     lyricSource = bundle.lyricSource;
-    hideLoading();
 
     lyricDisplay = createLyricDisplay(stage, {
       onWordClick: (text, x, y, line) => {
@@ -308,8 +329,10 @@ export function mountApp(root: HTMLElement) {
     controls.update(0);
     lyricDisplay.render(lyricSource.getCurrentLyric(0));
 
-    // 自動再生
-    player.play();
+    // 自動再生はブラウザのポリシーで弾かれるため、ユーザー操作（タップ）で再生開始する
+    showStartPrompt(() => {
+      player?.play();
+    });
   }
 
   function dispose() {

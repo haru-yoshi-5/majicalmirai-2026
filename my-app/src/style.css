@@ -457,6 +457,24 @@ body {
   animation: touchPulse 0.6s ease;
 }
 
+/* クリック済み（1回使ったら無効）の単語 */
+.lyric-word.is-used,
+.lyric-word:disabled {
+  cursor: default;
+  color: var(--text-muted);
+  opacity: 0.5;
+  text-shadow: none;
+  filter: none;
+  animation: none;
+}
+
+.lyric-word.is-used:hover,
+.lyric-word:disabled:hover {
+  color: var(--text-muted);
+  text-shadow: none;
+  filter: none;
+}
+
 @keyframes floatWord {
   0%,
   100% {
@@ -682,6 +700,29 @@ body {
   .setup-card {
     padding: 22px 20px;
   }
+}
+
+/* ------- 再生開始プロンプト ------- */
+.start-prompt {
+  appearance: none;
+  background: linear-gradient(135deg, var(--brand-bright), var(--sky));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+  color: var(--text-on-accent);
+  font-family: inherit;
+  font-size: clamp(14px, 1.6vw, 17px);
+  letter-spacing: 0.32em;
+  padding: 16px 44px;
+  cursor: pointer;
+  box-shadow: 0 8px 32px var(--brand-ring);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.start-prompt:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 40px var(--brand-ring);
 }
 
 /* ------- 読み込み中オーバーレイ ------- */

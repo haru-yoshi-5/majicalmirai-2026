@@ -16,17 +16,11 @@ export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOpt
     while (el.firstChild) el.removeChild(el.firstChild);
   }
 
+  // TextAlive の単語区切り（line.words）が無い場合のフォールバック。
+  // 空白があれば空白で分割し、無ければ勝手に刻まず行全体を1つの塊として扱う。
   function splitToWords(text: string): string[] {
     const tokens = text.split(/(\s+)/).filter((t) => t.trim().length > 0);
-    if (tokens.length >= 2) return tokens;
-    const chunks: string[] = [];
-    let i = 0;
-    while (i < text.length) {
-      const size = 2 + Math.floor(Math.random() * 3);
-      chunks.push(text.slice(i, i + size));
-      i += size;
-    }
-    return chunks;
+    return tokens.length > 0 ? tokens : [text];
   }
 
   function render(line: LyricLine | null) {
@@ -47,23 +41,30 @@ export function createLyricDisplay(parent: HTMLElement, options: LyricDisplayOpt
     const lineEl = document.createElement("div");
     lineEl.className = "lyric-line";
 
-    const tokens = splitToWords(line.text);
+    const tokens = line.words && line.words.length > 0 ? [...line.words] : splitToWords(line.text);
     tokens.forEach((token, idx) => {
       const span = document.createElement("button");
       span.type = "button";
       span.className = "lyric-word";
       span.textContent = token;
       span.style.setProperty("--i", String(idx));
-      span.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const rect = span.getBoundingClientRect();
-        const parentRect = parent.getBoundingClientRect();
-        const cx = rect.left + rect.width / 2 - parentRect.left;
-        const cy = rect.top + rect.height / 2 - parentRect.top;
-        span.classList.add("is-touched");
-        window.setTimeout(() => span.classList.remove("is-touched"), 500);
-        options.onWordClick(token, cx, cy, line);
-      });
+      span.addEventListener(
+        "click",
+        (e) => {
+          e.stopPropagation();
+          const rect = span.getBoundingClientRect();
+          const parentRect = parent.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2 - parentRect.left;
+          const cy = rect.top + rect.height / 2 - parentRect.top;
+          span.classList.add("is-touched");
+          window.setTimeout(() => span.classList.remove("is-touched"), 500);
+          // 各単語は1回だけ。クリック後は無効化して再クリックできないようにする。
+          span.disabled = true;
+          span.classList.add("is-used");
+          options.onWordClick(token, cx, cy, line);
+        },
+        { once: true },
+      );
       lineEl.appendChild(span);
     });
 
