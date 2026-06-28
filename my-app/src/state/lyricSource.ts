@@ -1,10 +1,5 @@
 import type { LyricLine, SongSection } from "../types/lyric.ts";
 import type { ChorusOverlayBlock, ChorusRange } from "./TextAliveController.ts";
-import { mockLyrics, SONG_DURATION } from "../data/mockLyrics.ts";
-import {
-  getCurrentLyric as getCurrentLyricMock,
-  getCurrentSection as getCurrentSectionMock,
-} from "./lyricTiming.ts";
 
 export interface LyricSource {
   getLyrics(): readonly LyricLine[];
@@ -13,26 +8,6 @@ export interface LyricSource {
   getChorusOverlay(time: number): ChorusOverlayBlock | null;
   getCurrentSection(time: number): SongSection;
   getDuration(): number;
-}
-
-export function createMockLyricSource(): LyricSource {
-  return {
-    getLyrics() {
-      return mockLyrics;
-    },
-    getCurrentLyric(time) {
-      return getCurrentLyricMock(time);
-    },
-    getChorusOverlay() {
-      return null;
-    },
-    getCurrentSection(time) {
-      return getCurrentSectionMock(time);
-    },
-    getDuration() {
-      return SONG_DURATION;
-    },
-  };
 }
 
 export interface TextAliveLyricInput {

@@ -5,7 +5,6 @@ import { createPlayerControls } from "../components/PlayerControls.ts";
 import { createEndingOverlay } from "../components/EndingOverlay.ts";
 import { createDayKiteScene } from "../scenes/DayKiteScene.ts";
 import type { DayKiteScene } from "../scenes/DayKiteScene.ts";
-import { createMockPlayer } from "../state/mockPlayer.ts";
 import { createTextAliveController } from "../state/TextAliveController.ts";
 import type {
   ChorusOverlayBlock,
@@ -13,12 +12,13 @@ import type {
   SongPlayerEvents,
   TextAliveBundle,
 } from "../state/TextAliveController.ts";
-import { createMockLyricSource, createTextAliveLyricSource } from "../state/lyricSource.ts";
+import { createTextAliveLyricSource } from "../state/lyricSource.ts";
 import type { LyricSource } from "../state/lyricSource.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
 import { generateKiteName } from "../utils/generateKiteName.ts";
 import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
 import type { KiteConfig, PastKiteRecord, SelectedLyric } from "../types/kite.ts";
+import { startNightExperience } from "../night/NightApp.ts";
 
 // 「こたえて」(imie) — マジカルミライ2026 プログラミング・コンテスト課題曲（グランプリ）
 //
@@ -42,26 +42,12 @@ const TEXTALIVE_SONG_MAP_IDS = {
   lyricDiffId: 28645,
 } as const;
 
-function shouldUseMock(): boolean {
-  if (typeof window === "undefined") return true;
-  return new URLSearchParams(window.location.search).has("mock");
-}
-
 interface PlayerBundle {
   player: SongPlayer;
   lyricSource: LyricSource;
 }
 
-async function createPlayerBundle(
-  events: SongPlayerEvents,
-  useMock: boolean,
-): Promise<PlayerBundle> {
-  if (useMock) {
-    return {
-      player: createMockPlayer(events),
-      lyricSource: createMockLyricSource(),
-    };
-  }
+async function createPlayerBundle(events: SongPlayerEvents): Promise<PlayerBundle> {
   const bundle: TextAliveBundle = await createTextAliveController(events, {
     songUrl: TEXTALIVE_SONG_URL,
     mapIds: TEXTALIVE_SONG_MAP_IDS,
@@ -124,6 +110,7 @@ export function mountApp(root: HTMLElement) {
   let lyricSource: LyricSource | null = null;
   let loadingEl: HTMLDivElement | null = null;
   let resizeHandler: (() => void) | null = null;
+  let nightSession: { dispose: () => void } | null = null;
 
   function showLoading(message: string) {
     if (!loadingEl) {
@@ -244,6 +231,15 @@ export function mountApp(root: HTMLElement) {
       onStart: () => {
         goSetup();
       },
+      onStartNight: () => {
+        teardownTitle();
+        nightSession = startNightExperience(root, {
+          onExit: () => {
+            nightSession = null;
+            goTitle();
+          },
+        });
+      },
     });
   }
 
@@ -288,52 +284,48 @@ export function mountApp(root: HTMLElement) {
     };
     window.addEventListener("resize", resizeHandler);
 
-    const useMock = shouldUseMock();
-    showLoading(useMock ? "読み込み中…" : "TextAlive 楽曲を読み込み中…");
+    showLoading("TextAlive 楽曲を読み込み中…");
 
     let bundle: PlayerBundle;
     try {
-      bundle = await createPlayerBundle(
-        {
-          onTimeUpdate: (t) => {
-            kiteScene?.setTime(t);
-            if (lyricSource) {
-              kiteScene?.setSection(lyricSource.getCurrentSection(t));
-              lyricDisplay?.render(lyricSource.getCurrentLyric(t));
-              renderChorusOverlay(lyricSource.getChorusOverlay(t));
-            }
-            controls?.update(t);
-          },
-          onPlayStateChange: (isPlaying) => {
-            controls?.setPlaying(isPlaying);
-          },
-          onEnded: () => {
-            kiteScene?.setSection("ended");
-            if (ending && kiteConfig) {
-              ending.show({
-                kiteConfig,
-                selectedLyrics,
-              });
-              // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
-              // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
-              //   1プレイにつき1回だけ保存するガード（保存済みフラグ等）を入れるか検討する。
-              const lastSelected = selectedLyrics[selectedLyrics.length - 1] ?? null;
-              const record: PastKiteRecord = {
-                name: generateKiteName(lastSelected, kiteConfig),
-                kiteConfig,
-                selectedTexts: selectedLyrics.map((lyric) => lyric.text),
-                savedAt: Date.now(),
-              };
-              savePastKite(record);
-            }
-          },
+      bundle = await createPlayerBundle({
+        onTimeUpdate: (t) => {
+          kiteScene?.setTime(t);
+          if (lyricSource) {
+            kiteScene?.setSection(lyricSource.getCurrentSection(t));
+            lyricDisplay?.render(lyricSource.getCurrentLyric(t));
+            renderChorusOverlay(lyricSource.getChorusOverlay(t));
+          }
+          controls?.update(t);
         },
-        useMock,
-      );
+        onPlayStateChange: (isPlaying) => {
+          controls?.setPlaying(isPlaying);
+        },
+        onEnded: () => {
+          kiteScene?.setSection("ended");
+          if (ending && kiteConfig) {
+            ending.show({
+              kiteConfig,
+              selectedLyrics,
+            });
+            // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
+            // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
+            //   1プレイにつき1回だけ保存するガード（保存済みフラグ等）を入れるか検討する。
+            const lastSelected = selectedLyrics[selectedLyrics.length - 1] ?? null;
+            const record: PastKiteRecord = {
+              name: generateKiteName(lastSelected, kiteConfig),
+              kiteConfig,
+              selectedTexts: selectedLyrics.map((lyric) => lyric.text),
+              savedAt: Date.now(),
+            };
+            savePastKite(record);
+          }
+        },
+      });
     } catch (err) {
       console.error("プレイヤー初期化に失敗しました", err);
       const message = err instanceof Error ? err.message : "プレイヤー初期化に失敗しました";
-      showLoading(`${message}\n（URL に ?mock=1 を付けるとモックで起動します）`);
+      showLoading(message);
       return;
     }
 
@@ -391,6 +383,10 @@ export function mountApp(root: HTMLElement) {
   }
 
   function dispose() {
+    if (nightSession) {
+      nightSession.dispose();
+      nightSession = null;
+    }
     teardownPlayingLayer();
     teardownSetup();
     teardownTitle();
