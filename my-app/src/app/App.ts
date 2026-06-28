@@ -19,38 +19,23 @@ import { generateKiteName } from "../utils/generateKiteName.ts";
 import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
 import type { KiteConfig, PastKiteRecord, SelectedLyric } from "../types/kite.ts";
 import { startNightExperience } from "../night/NightApp.ts";
+import { createSongSelect } from "../components/SongSelect.ts";
+import { DEFAULT_SONG } from "../data/songs.ts";
+import type { SongDef } from "../data/songs.ts";
 
-// 「こたえて」(imie) — マジカルミライ2026 プログラミング・コンテスト課題曲（グランプリ）
-//
-// 末尾にSongleのリビジョン(20251215164617)を付与している。これは必須の指定:
-//   公式ガイドラインの通り、楽曲URLは https://piapro.jp/t/曲ID/数字 の形式でないと
-//   正しく読み込めない。また未リビジョンの "piapro.jp/t/6W2N" を指定すると、TextAliveが
-//   内部で叩く songle.jp/songs/... がリビジョン付きURLへ302リダイレクトし、その302応答に
-//   Access-Control-Allow-Origin が無いためブラウザのCORSで弾かれ、読み込みが永遠に終わらない。
-// ※ 楽曲がSongleで再解析されるとリビジョン/各IDが変わる可能性あり。その際は公式配布値で更新する。
-const TEXTALIVE_SONG_URL = "https://piapro.jp/t/6W2N/20251215164617";
-
-// 音楽地図（歌詞・サビ等）のバージョン固定ID（公式ガイドライン配布値）。
-// 歌詞タイミングとサビ範囲を固定し、再解析の影響を受けないようにする。
-// このアプリはビート/コードを使わないため beatId/chordId は読み込まない(0)。
-//   ※ 公式の指定値に戻す場合は beatId:4827293, chordId:2963754 を設定する。
-const TEXTALIVE_SONG_MAP_IDS = {
-  beatId: 0,
-  chordId: 0,
-  repetitiveSegmentId: 3086261,
-  lyricId: 126519,
-  lyricDiffId: 28645,
-} as const;
+// 楽曲は課題曲6曲（src/data/songs.ts）から曲選択画面で選ぶ。
+// 楽曲URLはリビジョン付き必須（未リビジョンだと Songle が302でCORSに弾かれ無限ローディング）。
 
 interface PlayerBundle {
   player: SongPlayer;
   lyricSource: LyricSource;
 }
 
-async function createPlayerBundle(events: SongPlayerEvents): Promise<PlayerBundle> {
+async function createPlayerBundle(events: SongPlayerEvents, song: SongDef): Promise<PlayerBundle> {
   const bundle: TextAliveBundle = await createTextAliveController(events, {
-    songUrl: TEXTALIVE_SONG_URL,
-    mapIds: TEXTALIVE_SONG_MAP_IDS,
+    songUrl: song.songUrl,
+    mapIds: song.mapIds,
+    chorusOverlayFix: song.chorusOverlayFix,
   });
   return {
     player: bundle.player,
@@ -66,15 +51,14 @@ async function createPlayerBundle(events: SongPlayerEvents): Promise<PlayerBundl
 
 // TextAlive App API のライセンス表記（必須）。
 // 利用している旨を、楽曲ページ または developer.textalive.jp へのリンク付きで常時表示する。
+// 楽曲リンクは再生中の曲に合わせて setSong() で更新する。
 function createCredit(root: HTMLElement) {
   const credit = document.createElement("div");
   credit.className = "credit";
 
   const songLink = document.createElement("a");
-  songLink.href = "https://piapro.jp/t/6W2N";
   songLink.target = "_blank";
   songLink.rel = "noopener noreferrer";
-  songLink.textContent = "楽曲「こたえて」/ imie";
 
   const sep = document.createElement("span");
   sep.className = "credit-sep";
@@ -88,18 +72,27 @@ function createCredit(root: HTMLElement) {
 
   credit.append(songLink, sep, apiLink);
   root.appendChild(credit);
-  return credit;
+
+  function setSong(song: SongDef) {
+    songLink.href = song.pageUrl;
+    songLink.textContent = `楽曲「${song.title}」/ ${song.artist}`;
+  }
+  setSong(DEFAULT_SONG);
+
+  return { setSong };
 }
 
 export function mountApp(root: HTMLElement) {
   root.classList.add("kite-app");
-  createCredit(root);
+  const credit = createCredit(root);
 
   let kiteConfig: KiteConfig | null = null;
+  let selectedSong: SongDef = DEFAULT_SONG;
   let selectedLyrics: SelectedLyric[] = [];
 
   let titleScreen: ReturnType<typeof createTitleScreen> | null = null;
   let setupScreen: ReturnType<typeof createDayKiteSetup> | null = null;
+  let songSelectScreen: ReturnType<typeof createSongSelect> | null = null;
   let kiteScene: DayKiteScene | null = null;
   let kiteSceneContainer: HTMLDivElement | null = null;
   let lyricDisplay: ReturnType<typeof createLyricDisplay> | null = null;
@@ -120,34 +113,6 @@ export function mountApp(root: HTMLElement) {
     }
     loadingEl.textContent = message;
     loadingEl.style.display = "flex";
-  }
-
-  // 読み込み完了後の「再生開始」表示。
-  // 音声付き再生はブラウザの自動再生ポリシーでユーザー操作直後しか許可されないため、
-  // 読み込み中オーバーレイをクリック可能なスタートボタンに変えて、押下時に再生する。
-  function showStartPrompt(onStart: () => void) {
-    if (!loadingEl) {
-      loadingEl = document.createElement("div");
-      loadingEl.className = "loading-overlay";
-      root.appendChild(loadingEl);
-    }
-    loadingEl.textContent = "";
-    loadingEl.style.pointerEvents = "auto";
-    loadingEl.style.display = "flex";
-
-    const startButton = document.createElement("button");
-    startButton.type = "button";
-    startButton.className = "start-prompt";
-    startButton.textContent = "▶  タップして再生";
-    startButton.addEventListener(
-      "click",
-      () => {
-        onStart();
-        teardownLoading();
-      },
-      { once: true },
-    );
-    loadingEl.appendChild(startButton);
   }
 
   function teardownLoading() {
@@ -222,9 +187,17 @@ export function mountApp(root: HTMLElement) {
     }
   }
 
+  function teardownSongSelect() {
+    if (songSelectScreen) {
+      songSelectScreen.dispose();
+      songSelectScreen = null;
+    }
+  }
+
   function goTitle() {
     teardownPlayingLayer();
     teardownSetup();
+    teardownSongSelect();
     selectedLyrics = [];
     kiteConfig = null;
     titleScreen = createTitleScreen(root, {
@@ -234,6 +207,7 @@ export function mountApp(root: HTMLElement) {
       onStartNight: () => {
         teardownTitle();
         nightSession = startNightExperience(root, {
+          setSong: credit.setSong,
           onExit: () => {
             nightSession = null;
             goTitle();
@@ -245,12 +219,30 @@ export function mountApp(root: HTMLElement) {
 
   function goSetup() {
     teardownTitle();
+    teardownSongSelect();
     setupScreen = createDayKiteSetup(root, {
       onBack: () => {
         goTitle();
       },
       onComplete: (config) => {
         kiteConfig = config;
+        goSongSelect();
+      },
+    });
+  }
+
+  // 凧づくりのあと、課題曲6曲から選ぶ。「あそぶ」押下でその曲の再生へ。
+  function goSongSelect() {
+    teardownSetup();
+    songSelectScreen = createSongSelect(root, {
+      defaultSongId: selectedSong.id,
+      onBack: () => {
+        goSetup();
+      },
+      onPlay: (song) => {
+        selectedSong = song;
+        credit.setSong(song);
+        teardownSongSelect();
         void goPlaying();
       },
     });
@@ -288,40 +280,43 @@ export function mountApp(root: HTMLElement) {
 
     let bundle: PlayerBundle;
     try {
-      bundle = await createPlayerBundle({
-        onTimeUpdate: (t) => {
-          kiteScene?.setTime(t);
-          if (lyricSource) {
-            kiteScene?.setSection(lyricSource.getCurrentSection(t));
-            lyricDisplay?.render(lyricSource.getCurrentLyric(t));
-            renderChorusOverlay(lyricSource.getChorusOverlay(t));
-          }
-          controls?.update(t);
+      bundle = await createPlayerBundle(
+        {
+          onTimeUpdate: (t) => {
+            kiteScene?.setTime(t);
+            if (lyricSource) {
+              kiteScene?.setSection(lyricSource.getCurrentSection(t));
+              lyricDisplay?.render(lyricSource.getCurrentLyric(t));
+              renderChorusOverlay(lyricSource.getChorusOverlay(t));
+            }
+            controls?.update(t);
+          },
+          onPlayStateChange: (isPlaying) => {
+            controls?.setPlaying(isPlaying);
+          },
+          onEnded: () => {
+            kiteScene?.setSection("ended");
+            if (ending && kiteConfig) {
+              ending.show({
+                kiteConfig,
+                selectedLyrics,
+              });
+              // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
+              // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
+              //   1プレイにつき1回だけ保存するガード（保存済みフラグ等）を入れるか検討する。
+              const lastSelected = selectedLyrics[selectedLyrics.length - 1] ?? null;
+              const record: PastKiteRecord = {
+                name: generateKiteName(lastSelected, kiteConfig),
+                kiteConfig,
+                selectedTexts: selectedLyrics.map((lyric) => lyric.text),
+                savedAt: Date.now(),
+              };
+              savePastKite(record);
+            }
+          },
         },
-        onPlayStateChange: (isPlaying) => {
-          controls?.setPlaying(isPlaying);
-        },
-        onEnded: () => {
-          kiteScene?.setSection("ended");
-          if (ending && kiteConfig) {
-            ending.show({
-              kiteConfig,
-              selectedLyrics,
-            });
-            // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
-            // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
-            //   1プレイにつき1回だけ保存するガード（保存済みフラグ等）を入れるか検討する。
-            const lastSelected = selectedLyrics[selectedLyrics.length - 1] ?? null;
-            const record: PastKiteRecord = {
-              name: generateKiteName(lastSelected, kiteConfig),
-              kiteConfig,
-              selectedTexts: selectedLyrics.map((lyric) => lyric.text),
-              savedAt: Date.now(),
-            };
-            savePastKite(record);
-          }
-        },
-      });
+        selectedSong,
+      );
     } catch (err) {
       console.error("プレイヤー初期化に失敗しました", err);
       const message = err instanceof Error ? err.message : "プレイヤー初期化に失敗しました";
@@ -370,16 +365,15 @@ export function mountApp(root: HTMLElement) {
         selectedLyrics = [];
         ending?.hide();
       },
-      onSeek: (t) => player?.seek(t),
     });
 
     controls.update(0);
     lyricDisplay.render(lyricSource.getCurrentLyric(0));
 
-    // 自動再生はブラウザのポリシーで弾かれるため、ユーザー操作（タップ）で再生開始する
-    showStartPrompt(() => {
-      player?.play();
-    });
+    // 「あそぶ」押下の操作直後なので、そのまま自動再生する。
+    // 万一ブラウザに弾かれても、下部プレイヤーの再生ボタンから開始できる。
+    teardownLoading();
+    player.play();
   }
 
   function dispose() {
@@ -389,6 +383,7 @@ export function mountApp(root: HTMLElement) {
     }
     teardownPlayingLayer();
     teardownSetup();
+    teardownSongSelect();
     teardownTitle();
   }
 

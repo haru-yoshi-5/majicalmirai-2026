@@ -3,8 +3,10 @@ export interface PlayerControlsOptions {
   onPlay: () => void;
   onPause: () => void;
   onReset: () => void;
-  onSeek: (time: number) => void;
 }
+
+/** 灯りゲージの灯数（曲全体を等分する光の数）。 */
+const GAUGE_LIGHTS = 24;
 
 export function createPlayerControls(parent: HTMLElement, options: PlayerControlsOptions) {
   const root = document.createElement("div");
@@ -27,18 +29,26 @@ export function createPlayerControls(parent: HTMLElement, options: PlayerControl
   timeLabel.className = "player-time";
   timeLabel.textContent = "0:00 / 0:00";
 
-  const progressWrap = document.createElement("div");
-  progressWrap.className = "player-progress";
-  const progressBar = document.createElement("div");
-  progressBar.className = "player-progress-bar";
-  progressWrap.appendChild(progressBar);
+  // シークバーの代わりに「灯りゲージ」。曲の進行に合わせて灯がともっていく（シーク不可）。
+  const gauge = document.createElement("div");
+  gauge.className = "player-gauge";
+  gauge.setAttribute("role", "progressbar");
+  gauge.setAttribute("aria-label", "再生の進行");
+  const lights: HTMLSpanElement[] = [];
+  for (let i = 0; i < GAUGE_LIGHTS; i += 1) {
+    const dot = document.createElement("span");
+    dot.className = "player-gauge-light";
+    gauge.appendChild(dot);
+    lights.push(dot);
+  }
 
   root.appendChild(playButton);
-  root.appendChild(progressWrap);
+  root.appendChild(gauge);
   root.appendChild(timeLabel);
   root.appendChild(resetButton);
 
   let isPlaying = false;
+  let litCount = -1;
 
   function formatTime(t: number): string {
     const sec = Math.max(0, Math.floor(t));
@@ -48,8 +58,17 @@ export function createPlayerControls(parent: HTMLElement, options: PlayerControl
   }
 
   function update(time: number) {
-    const ratio = options.duration > 0 ? time / options.duration : 0;
-    progressBar.style.width = `${Math.min(100, Math.max(0, ratio * 100))}%`;
+    const ratio = options.duration > 0 ? Math.min(1, Math.max(0, time / options.duration)) : 0;
+    // 進行に応じて先頭から灯をともす。最前列は「いま灯っている」ものとして強調。
+    const nextLit = Math.round(ratio * GAUGE_LIGHTS);
+    if (nextLit !== litCount) {
+      for (let i = 0; i < GAUGE_LIGHTS; i += 1) {
+        lights[i]!.classList.toggle("is-lit", i < nextLit);
+        lights[i]!.classList.toggle("is-head", i === nextLit - 1);
+      }
+      litCount = nextLit;
+    }
+    gauge.setAttribute("aria-valuenow", String(Math.round(ratio * 100)));
     timeLabel.textContent = `${formatTime(time)} / ${formatTime(options.duration)}`;
   }
 
@@ -57,12 +76,7 @@ export function createPlayerControls(parent: HTMLElement, options: PlayerControl
     isPlaying = value;
     playButton.innerHTML = isPlaying ? pauseIconSvg() : playIconSvg();
     playButton.setAttribute("aria-label", isPlaying ? "一時停止" : "再生");
-  }
-
-  function handleSeek(e: PointerEvent) {
-    const rect = progressWrap.getBoundingClientRect();
-    const ratio = Math.min(1, Math.max(0, (e.clientX - rect.left) / rect.width));
-    options.onSeek(ratio * options.duration);
+    root.classList.toggle("is-playing", isPlaying);
   }
 
   playButton.addEventListener("click", () => {
@@ -71,9 +85,6 @@ export function createPlayerControls(parent: HTMLElement, options: PlayerControl
   });
   resetButton.addEventListener("click", () => {
     options.onReset();
-  });
-  progressWrap.addEventListener("pointerdown", (e) => {
-    handleSeek(e);
   });
 
   update(0);

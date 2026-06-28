@@ -25,27 +25,22 @@ import type {
 } from "../state/TextAliveController.ts";
 import { createTextAliveLyricSource } from "../state/lyricSource.ts";
 import type { LyricSource } from "../state/lyricSource.ts";
+import { createSongSelect } from "../components/SongSelect.ts";
+import { DEFAULT_SONG } from "../data/songs.ts";
+import type { SongDef } from "../data/songs.ts";
 
-// 課題曲「こたえて」/ imie（昼と同じ曲）。リビジョン付きURL必須の理由は
-// 昼の app/App.ts のコメント参照。夜を自己完結させるためここに複製している。
-const TEXTALIVE_SONG_URL = "https://piapro.jp/t/6W2N/20251215164617";
-const TEXTALIVE_SONG_MAP_IDS = {
-  beatId: 0,
-  chordId: 0,
-  repetitiveSegmentId: 3086261,
-  lyricId: 126519,
-  lyricDiffId: 28645,
-} as const;
+// 楽曲は課題曲6曲（src/data/songs.ts）から曲選択画面で選ぶ。昼と同じカタログを共有。
 
 interface PlayerBundle {
   player: SongPlayer;
   lyricSource: LyricSource;
 }
 
-async function createPlayerBundle(events: SongPlayerEvents): Promise<PlayerBundle> {
+async function createPlayerBundle(events: SongPlayerEvents, song: SongDef): Promise<PlayerBundle> {
   const bundle: TextAliveBundle = await createTextAliveController(events, {
-    songUrl: TEXTALIVE_SONG_URL,
-    mapIds: TEXTALIVE_SONG_MAP_IDS,
+    songUrl: song.songUrl,
+    mapIds: song.mapIds,
+    chorusOverlayFix: song.chorusOverlayFix,
     appName: "歌灯りの御殿屋台",
   });
   return {
@@ -63,6 +58,8 @@ async function createPlayerBundle(events: SongPlayerEvents): Promise<PlayerBundl
 export interface NightExperienceOptions {
   /** エンディングや屋台づくりの「戻る」でタイトルへ帰るときに呼ばれる */
   onExit: () => void;
+  /** 選んだ曲をクレジット表記へ反映する（昼の credit と共有） */
+  setSong?: (song: SongDef) => void;
 }
 
 export interface NightExperience {
@@ -76,9 +73,11 @@ export function startNightExperience(
   root.setAttribute("data-mode", "night");
 
   let yataiConfig: YataiConfig | null = null;
+  let selectedSong: SongDef = DEFAULT_SONG;
   let selectedLyrics: NightSelectedLyric[] = [];
 
   let setupScreen: ReturnType<typeof createNightYataiSetup> | null = null;
+  let songSelectScreen: ReturnType<typeof createSongSelect> | null = null;
   let stage: HTMLDivElement | null = null;
   let scene: NightYataiScene | null = null;
   let lyricDisplay: ReturnType<typeof createLyricDisplay> | null = null;
@@ -98,31 +97,6 @@ export function startNightExperience(
     }
     loadingEl.textContent = message;
     loadingEl.style.display = "flex";
-  }
-
-  function showStartPrompt(onStart: () => void) {
-    if (!loadingEl) {
-      loadingEl = document.createElement("div");
-      loadingEl.className = "loading-overlay";
-      root.appendChild(loadingEl);
-    }
-    loadingEl.textContent = "";
-    loadingEl.style.pointerEvents = "auto";
-    loadingEl.style.display = "flex";
-
-    const startButton = document.createElement("button");
-    startButton.type = "button";
-    startButton.className = "start-prompt";
-    startButton.textContent = "▶  タップして灯す";
-    startButton.addEventListener(
-      "click",
-      () => {
-        onStart();
-        teardownLoading();
-      },
-      { once: true },
-    );
-    loadingEl.appendChild(startButton);
   }
 
   function teardownLoading() {
@@ -189,9 +163,17 @@ export function startNightExperience(
     }
   }
 
+  function teardownSongSelect() {
+    if (songSelectScreen) {
+      songSelectScreen.dispose();
+      songSelectScreen = null;
+    }
+  }
+
   function disposeAll() {
     teardownPlaying();
     teardownSetup();
+    teardownSongSelect();
     selectedLyrics = [];
     yataiConfig = null;
     root.removeAttribute("data-mode");
@@ -203,12 +185,30 @@ export function startNightExperience(
   }
 
   function goSetup() {
+    teardownSongSelect();
     setupScreen = createNightYataiSetup(root, {
       onBack: () => {
         exitToTitle();
       },
       onComplete: (config) => {
         yataiConfig = config;
+        goSongSelect();
+      },
+    });
+  }
+
+  // 屋台づくりのあと、課題曲6曲から選ぶ。「あそぶ」押下でその曲の再生へ。
+  function goSongSelect() {
+    teardownSetup();
+    songSelectScreen = createSongSelect(root, {
+      defaultSongId: selectedSong.id,
+      onBack: () => {
+        goSetup();
+      },
+      onPlay: (song) => {
+        selectedSong = song;
+        options.setSong?.(song);
+        teardownSongSelect();
         void goPlaying();
       },
     });
@@ -239,26 +239,29 @@ export function startNightExperience(
 
     let bundle: PlayerBundle;
     try {
-      bundle = await createPlayerBundle({
-        onTimeUpdate: (t) => {
-          scene?.setTime(t);
-          if (lyricSource) {
-            scene?.setSection(lyricSource.getCurrentSection(t));
-            lyricDisplay?.render(lyricSource.getCurrentLyric(t));
-            renderChorusOverlay(lyricSource.getChorusOverlay(t));
-          }
-          controls?.update(t);
+      bundle = await createPlayerBundle(
+        {
+          onTimeUpdate: (t) => {
+            scene?.setTime(t);
+            if (lyricSource) {
+              scene?.setSection(lyricSource.getCurrentSection(t));
+              lyricDisplay?.render(lyricSource.getCurrentLyric(t));
+              renderChorusOverlay(lyricSource.getChorusOverlay(t));
+            }
+            controls?.update(t);
+          },
+          onPlayStateChange: (isPlaying) => {
+            controls?.setPlaying(isPlaying);
+          },
+          onEnded: () => {
+            scene?.setSection("ended");
+            if (ending && yataiConfig) {
+              ending.show({ yataiConfig, selectedLyrics });
+            }
+          },
         },
-        onPlayStateChange: (isPlaying) => {
-          controls?.setPlaying(isPlaying);
-        },
-        onEnded: () => {
-          scene?.setSection("ended");
-          if (ending && yataiConfig) {
-            ending.show({ yataiConfig, selectedLyrics });
-          }
-        },
-      });
+        selectedSong,
+      );
     } catch (err) {
       console.error("夜の部プレイヤー初期化に失敗しました", err);
       const message = err instanceof Error ? err.message : "プレイヤー初期化に失敗しました";
@@ -307,15 +310,15 @@ export function startNightExperience(
         selectedLyrics = [];
         ending?.hide();
       },
-      onSeek: (t) => player?.seek(t),
     });
 
     controls.update(0);
     lyricDisplay.render(lyricSource.getCurrentLyric(0));
 
-    showStartPrompt(() => {
-      player?.play();
-    });
+    // 「あそぶ」押下の操作直後なので、そのまま自動再生する。
+    // 万一ブラウザに弾かれても、下部プレイヤーの再生ボタンから開始できる。
+    teardownLoading();
+    player.play();
   }
 
   goSetup();

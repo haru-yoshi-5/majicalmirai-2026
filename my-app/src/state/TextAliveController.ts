@@ -117,6 +117,11 @@ export interface TextAliveOptions {
   mapIds?: SongMapIds;
   appToken?: string;
   appName?: string;
+  /**
+   * 「こたえて」専用のコーラス（3段落目）1ms問題を配布データで補正するか。
+   * 補正データ（6W2N_chorus_timings.jsonc）は曲固有のため、対象曲のみ true にする。
+   */
+  chorusOverlayFix?: boolean;
 }
 
 const DEFAULT_APP_NAME = "湖風の歌詞凧";
@@ -265,9 +270,9 @@ export function createTextAliveController(
           phrase = phrase.next ?? null;
         }
 
-        // コーラス（3段落目）の1ms問題を配布データで補正する。
+        // コーラス（3段落目）の1ms問題を配布データで補正する（対象曲のみ）。
         // 主旋律は残し、コーラスは別レイヤーのオーバーレイとして返す。
-        const chorusOverlays = buildChorusOverlays(lyrics);
+        const chorusOverlays = options.chorusOverlayFix ? buildChorusOverlays(lyrics) : [];
 
         const chorus: ChorusRange[] = [];
         const choruses: IRepetitiveSegment[] = player.getChoruses() ?? [];

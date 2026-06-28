@@ -1,15 +1,18 @@
 // 夜の部「歌灯りの御殿屋台」の PixiJS シーン本体（NIGHT_SPEC §11–§13, §15）。
 // 昼の scenes/DayKiteScene.ts と対になる夜専用シーン。昼のシーンには手を加えない。
 //
-// 体験の核：歌詞 → 光の粒 → 提灯 → 屋台の装飾 → 夜の街と湖面の反射。
+// 体験の核：自分が祭りの通りを歩く視点。屋台は動かず、自分が進むことで
+// 奥の屋台が左へ流れていく。歌詞を押すと、いま画面にいる未点灯の屋台へ光が飛び、
+// その屋台の提灯がまとめて灯る。歌詞 → 光の粒 → 屋台が灯る → 夜の街と湖面の反射。
 
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, BlurFilter, Container, Graphics, Text } from "pixi.js";
 import type { SongSection } from "../types/lyric.ts";
 import type {
   CommunityLantern,
   LanternColor,
   NightSelectedLyric,
   NightWordCategory,
+  YataiBaseColor,
   YataiConfig,
 } from "./yataiTypes.ts";
 import { LANTERN_COLORS, NIGHT_SCENE, YATAI_BASE_COLORS, hslToHex } from "./nightColors.ts";
@@ -20,17 +23,42 @@ import {
 } from "./generateCommunityLantern.ts";
 
 const FONT_FAMILY = '"Hiragino Sans","Yu Gothic UI","Segoe UI",system-ui,sans-serif';
-const LANTERN_COUNT = 7;
+const LANTERNS_PER_STALL = 5;
+const MAX_INSCRIBED_PER_STALL = 3;
 
-interface LanternState {
-  /** 現在の点灯度 0..1（lit へ向けて補間） */
+// 屋台の基調色の候補。YataiBaseColor の5色はいずれも祭り向けに調整済みで
+// 互いに調和するため、この中から台ごとに選べば「変な色」は混ざらない。
+const STALL_COLOR_PALETTE: YataiBaseColor[] = ["vermilion", "gold", "indigo", "purple", "hinoki"];
+
+interface LanternSlot {
+  localX: number;
+  localY: number;
+  phase: number;
+}
+
+/** 通りに並んで左へ流れる屋台1台ぶん */
+interface Stall {
+  /** ステージ座標の中心X（毎フレーム左へ流れる） */
+  x: number;
+  /** この屋台の基調色（通りに彩りを出すため台ごとに変える） */
+  baseColor: YataiBaseColor;
+  /** 大きさのばらつき（奥行き感） */
+  scale: number;
+  /** 現在の点灯度 0..1 */
   lit: number;
   /** 目標の点灯度 0..1 */
   target: number;
-  localX: number;
-  localY: number;
-  color: LanternColor;
-  phase: number;
+  /** 提灯列のローカルY（光の粒の着地点に使う） */
+  lanternLocalY: number;
+  lanterns: LanternSlot[];
+  inscribed: Text[];
+  container: Container;
+  bodyGfx: Graphics;
+  mukuGfx: Graphics;
+  roofGfx: Graphics;
+  finialGfx: Graphics;
+  stringsGfx: Graphics;
+  lanternsGfx: Graphics;
 }
 
 interface LightParticleFx {
@@ -39,11 +67,13 @@ interface LightParticleFx {
   fromY: number;
   ctrlX: number;
   ctrlY: number;
-  lanternIndex: number;
+  stall: Stall;
   life: number;
   maxLife: number;
   hue: number;
   arrived: boolean;
+  text: string;
+  category: NightWordCategory;
 }
 
 interface BurstFx {
@@ -121,18 +151,20 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
   // レイヤー（奥 → 手前）
   const skyLayer = new Container();
   const distantLayer = new Container(); // 周囲の提灯（遠景）
+  const stallsLayer = new Container(); // 通りを流れる屋台の列（奥）
   const lakeLayer = new Container();
   const reflectionLayer = new Container();
-  const yataiLayer = new Container(); // 自分の御殿屋台
   const lightLayer = new Container(); // 光の粒・バースト・火花
+  const foregroundLayer = new Container(); // 手前を歩く影絵（初音ミク風）
   const fallingLyricLayer = new Container();
 
   app.stage.addChild(skyLayer);
   app.stage.addChild(distantLayer);
+  app.stage.addChild(stallsLayer);
   app.stage.addChild(lakeLayer);
   app.stage.addChild(reflectionLayer);
-  app.stage.addChild(yataiLayer);
   app.stage.addChild(lightLayer);
+  app.stage.addChild(foregroundLayer);
   app.stage.addChild(fallingLyricLayer);
 
   const skyGfx = new Graphics();
@@ -142,36 +174,12 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
   const reflectionGfx = new Graphics();
   reflectionLayer.addChild(reflectionGfx);
 
-  // 屋台コンテナとそのパーツ
-  const yatai = new Container();
-  const shadowGfx = new Graphics();
-  const wheelLeft = new Graphics();
-  const wheelRight = new Graphics();
-  const bodyGfx = new Graphics();
-  const mukuGfx = new Graphics();
-  const roofGfx = new Graphics();
-  const finialGfx = new Graphics();
-  const stringsGfx = new Graphics();
-  const lanternsGfx = new Graphics();
-  const wishText = new Text({
-    text: "歌",
-    style: { fontFamily: FONT_FAMILY, fontSize: 26, fill: 0xfff3df, fontWeight: "300" },
-  });
-  wishText.anchor.set(0.5);
-  // 選んだ歌詞が屋台幕に刻まれる
-  const inscribed: Text[] = [];
-
-  yatai.addChild(shadowGfx);
-  yatai.addChild(wheelLeft);
-  yatai.addChild(wheelRight);
-  yatai.addChild(bodyGfx);
-  yatai.addChild(mukuGfx);
-  yatai.addChild(wishText);
-  yatai.addChild(roofGfx);
-  yatai.addChild(finialGfx);
-  yatai.addChild(stringsGfx);
-  yatai.addChild(lanternsGfx);
-  yataiLayer.addChild(yatai);
+  // 手前の影絵（初音ミク風シルエット）。グロー（ティールのにじみ）→ 本体（黒）の順で重ねる。
+  const mikuGlow = new Graphics();
+  mikuGlow.filters = [new BlurFilter({ strength: 4, quality: 2 })];
+  const mikuBody = new Graphics();
+  foregroundLayer.addChild(mikuGlow);
+  foregroundLayer.addChild(mikuBody);
 
   // 状態
   let yataiConfig: YataiConfig = {
@@ -188,11 +196,12 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
   let moodHue = 210;
   let moodIntensity = 0;
   let flareTimer = 0; // サビ突入の一斉点灯演出
-  let wheelSpin = 0;
   let ambientSpawnTimer = 0;
-  let nextLanternToLight = 0;
+  let scrollSpeed = 0; // 自分の歩み（屋台が左へ流れる速さ, px/sec）
+  let mikuPhase = 0; // 影絵の歩行サイクル位相
 
-  const lanterns: LanternState[] = [];
+  const stalls: Stall[] = [];
+  let stallSpacing = 200; // 屋台の中心間隔（resize で再計算）
   const lightParticles: LightParticleFx[] = [];
   const bursts: BurstFx[] = [];
   const fallingLyrics: FallingLyricFx[] = [];
@@ -307,99 +316,111 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
   }
 
-  // ---- 屋台の描画 ----
-  function rebuildYatai() {
+  // 設定色を少し多めに混ぜた候補から、直前の台と被らない基調色を選ぶ
+  function pickStallColor(avoid?: YataiBaseColor): YataiBaseColor {
+    const pool: YataiBaseColor[] = [...STALL_COLOR_PALETTE, yataiConfig.baseColor];
+    const candidates = pool.filter((c) => c !== avoid);
+    return candidates[Math.floor(Math.random() * candidates.length)] ?? yataiConfig.baseColor;
+  }
+
+  // 列全体へ、隣同士が同色にならないよう基調色を割り当て直す
+  function assignStallColors() {
+    let prev: YataiBaseColor | undefined;
+    for (const stall of stalls) {
+      stall.baseColor = pickStallColor(prev);
+      prev = stall.baseColor;
+    }
+  }
+
+  // ---- 屋台（通りに並ぶ1台）の生成と描画 ----
+  function createStall(): Stall {
+    const container = new Container();
+    const bodyGfx = new Graphics();
+    const mukuGfx = new Graphics();
+    const roofGfx = new Graphics();
+    const finialGfx = new Graphics();
+    const stringsGfx = new Graphics();
+    const lanternsGfx = new Graphics();
+    // 奥 → 手前：本体・幕紋様・屋根・棟飾り・吊り紐・提灯
+    container.addChild(bodyGfx, mukuGfx, roofGfx, finialGfx, stringsGfx, lanternsGfx);
+    stallsLayer.addChild(container);
+    return {
+      x: 0,
+      baseColor: yataiConfig.baseColor,
+      scale: 1,
+      lit: 0,
+      target: 0,
+      lanternLocalY: 0,
+      lanterns: [],
+      inscribed: [],
+      container,
+      bodyGfx,
+      mukuGfx,
+      roofGfx,
+      finialGfx,
+      stringsGfx,
+      lanternsGfx,
+    };
+  }
+
+  // 屋台の静的パーツを現在の unit・config・scale で組み直す
+  function buildStall(stall: Stall) {
     const S = unit();
-    const bodyW = S * 0.3;
-    const bodyH = S * 0.15;
-    const roofH = S * 0.1;
-    const roofW = bodyW * 1.32;
-    const wheelR = S * 0.045;
-    const baseColor = YATAI_BASE_COLORS[yataiConfig.baseColor];
-
-    // 影
-    shadowGfx.clear();
-    shadowGfx.ellipse(0, bodyH * 0.5 + wheelR * 1.4, bodyW * 0.75, S * 0.022);
-    shadowGfx.fill({ color: 0x000000, alpha: 0.3 });
-
-    // 車輪
-    const wheelY = bodyH * 0.5 + wheelR * 0.6;
-    drawWheel(wheelLeft, wheelR);
-    drawWheel(wheelRight, wheelR);
-    wheelLeft.position.set(-bodyW * 0.32, wheelY);
-    wheelRight.position.set(bodyW * 0.32, wheelY);
+    const bodyW = S * 0.2;
+    const bodyH = S * 0.1;
+    const roofH = S * 0.065;
+    const roofW = bodyW * 1.3;
+    const baseColor = YATAI_BASE_COLORS[stall.baseColor];
+    const bodyCY = -bodyH * 0.5; // 本体中心（接地点が container 原点 y=0）
 
     // 本体（幕）
-    bodyGfx.clear();
-    bodyGfx.roundRect(-bodyW * 0.5, -bodyH * 0.5, bodyW, bodyH, S * 0.012);
-    bodyGfx.fill({ color: baseColor, alpha: 1 });
-    bodyGfx.stroke({ color: 0xe7c878, width: 2, alpha: 0.9 }); // 金の縁取り
-    // 内側の陰
-    bodyGfx.roundRect(-bodyW * 0.5, -bodyH * 0.5, bodyW, bodyH, S * 0.012);
-    bodyGfx.stroke({ color: 0x000000, width: 1, alpha: 0.15 });
+    stall.bodyGfx.clear();
+    stall.bodyGfx.roundRect(-bodyW * 0.5, -bodyH, bodyW, bodyH, S * 0.01);
+    stall.bodyGfx.fill({ color: baseColor, alpha: 1 });
+    stall.bodyGfx.stroke({ color: 0xe7c878, width: 1.5, alpha: 0.85 }); // 金の縁取り
 
-    drawMuku(bodyW, bodyH);
+    // 幕の紋様（本体中心へ寄せる）
+    stall.mukuGfx.position.set(0, bodyCY);
+    drawMuku(stall.mukuGfx, bodyW, bodyH);
 
     // 屋根（2段の唐破風風）
-    roofGfx.clear();
-    drawRoofTier(roofGfx, roofW, roofH, -bodyH * 0.5);
-    drawRoofTier(roofGfx, roofW * 0.7, roofH * 0.8, -bodyH * 0.5 - roofH * 0.7);
+    stall.roofGfx.clear();
+    drawRoofTier(stall.roofGfx, roofW, roofH, -bodyH);
+    drawRoofTier(stall.roofGfx, roofW * 0.7, roofH * 0.8, -bodyH - roofH * 0.7);
 
     // 棟飾り（金の宝珠）
-    finialGfx.clear();
-    finialGfx.circle(0, -bodyH * 0.5 - roofH * 1.35, S * 0.012);
-    finialGfx.fill({ color: 0xffe9a0, alpha: 0.95 });
+    stall.finialGfx.clear();
+    stall.finialGfx.circle(0, -bodyH - roofH * 1.3, S * 0.009);
+    stall.finialGfx.fill({ color: 0xffe9a0, alpha: 0.95 });
 
-    // 願いの文字
-    wishText.style.fontSize = Math.max(14, bodyH * 0.6);
-    wishText.text = yataiConfig.wish;
-    wishText.position.set(0, 0);
-
-    // 提灯の配置（軒下に横一列）
-    const lanternY = -bodyH * 0.5 - roofH * 0.16;
-    const spread = bodyW * 0.92;
-    for (let i = 0; i < LANTERN_COUNT; i += 1) {
-      const lx = -spread * 0.5 + (spread * i) / (LANTERN_COUNT - 1);
-      const existing = lanterns[i];
-      if (existing) {
-        existing.localX = lx;
-        existing.localY = lanternY;
-        existing.color = yataiConfig.lanternColor;
-      } else {
-        lanterns[i] = {
-          lit: i < 2 ? 0.35 : 0, // intro で数個だけ弱く灯る
-          target: i < 2 ? 0.35 : 0,
-          localX: lx,
-          localY: lanternY,
-          color: yataiConfig.lanternColor,
-          phase: Math.random() * Math.PI * 2,
-        };
-      }
+    // 提灯スロット（軒下に横一列）
+    const lanternY = -bodyH - roofH * 0.12;
+    stall.lanternLocalY = lanternY;
+    const spread = bodyW * 0.95;
+    stall.lanterns = [];
+    for (let i = 0; i < LANTERNS_PER_STALL; i += 1) {
+      const lx = -spread * 0.5 + (spread * i) / (LANTERNS_PER_STALL - 1);
+      stall.lanterns.push({ localX: lx, localY: lanternY, phase: Math.random() * Math.PI * 2 });
     }
 
     // 軒から提灯への吊り紐
-    const eaveY = -bodyH * 0.5 - roofH * 0.45;
-    stringsGfx.clear();
-    for (const l of lanterns) {
-      stringsGfx.moveTo(l.localX, eaveY);
-      stringsGfx.lineTo(l.localX, l.localY - S * 0.012);
+    const eaveY = -bodyH - roofH * 0.4;
+    stall.stringsGfx.clear();
+    for (const l of stall.lanterns) {
+      stall.stringsGfx.moveTo(l.localX, eaveY);
+      stall.stringsGfx.lineTo(l.localX, l.localY - S * 0.01);
     }
-    stringsGfx.stroke({ color: 0x2a2118, width: 1, alpha: 0.6 });
-  }
+    stall.stringsGfx.stroke({ color: 0x2a2118, width: 1, alpha: 0.55 });
 
-  function drawWheel(g: Graphics, r: number) {
-    g.clear();
-    g.circle(0, 0, r);
-    g.fill({ color: 0x3a2a1c, alpha: 1 });
-    g.stroke({ color: 0xc9a55c, width: 2, alpha: 0.85 });
-    for (let i = 0; i < 6; i += 1) {
-      const a = (i / 6) * Math.PI * 2;
-      g.moveTo(0, 0);
-      g.lineTo(Math.cos(a) * r, Math.sin(a) * r);
+    // 刻まれた歌詞の位置を本体中心へ寄せ直す
+    for (const t of stall.inscribed) {
+      t.position.set(
+        (Math.random() - 0.5) * bodyW * 0.7,
+        bodyCY + (Math.random() - 0.5) * bodyH * 0.5,
+      );
     }
-    g.stroke({ color: 0xc9a55c, width: 1, alpha: 0.6 });
-    g.circle(0, 0, r * 0.18);
-    g.fill({ color: 0xe7c878, alpha: 0.9 });
+
+    stall.container.scale.set(stall.scale);
   }
 
   function drawRoofTier(g: Graphics, w: number, h: number, baseY: number) {
@@ -413,113 +434,154 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     g.stroke({ color: 0xe7c878, width: 1.5, alpha: 0.8 });
   }
 
-  function drawMuku(bodyW: number, bodyH: number) {
-    mukuGfx.clear();
+  function drawMuku(g: Graphics, bodyW: number, bodyH: number) {
+    g.clear();
     const a = 0.32;
     switch (yataiConfig.pattern) {
       case "ripple":
         for (let i = 1; i <= 3; i += 1) {
-          mukuGfx.arc(0, bodyH * 0.55, bodyW * 0.16 * i, Math.PI, Math.PI * 2);
-          mukuGfx.stroke({ color: 0xffffff, width: 1.2, alpha: a });
+          g.arc(0, bodyH * 0.55, bodyW * 0.16 * i, Math.PI, Math.PI * 2);
+          g.stroke({ color: 0xffffff, width: 1.2, alpha: a });
         }
         break;
       case "sound":
         for (let i = 0; i < 4; i += 1) {
           const y = -bodyH * 0.3 + i * bodyH * 0.2;
-          mukuGfx.moveTo(-bodyW * 0.42, y);
-          mukuGfx.lineTo(bodyW * 0.42, y);
+          g.moveTo(-bodyW * 0.42, y);
+          g.lineTo(bodyW * 0.42, y);
         }
-        mukuGfx.stroke({ color: 0xffffff, width: 1, alpha: a });
+        g.stroke({ color: 0xffffff, width: 1, alpha: a });
         break;
       case "star":
         for (let i = 0; i < 7; i += 1) {
           const sx = (Math.random() - 0.5) * bodyW * 0.8;
           const sy = (Math.random() - 0.5) * bodyH * 0.7;
-          mukuGfx.circle(sx, sy, 1.8);
-          mukuGfx.fill({ color: 0xffffff, alpha: a + 0.2 });
+          g.circle(sx, sy, 1.8);
+          g.fill({ color: 0xffffff, alpha: a + 0.2 });
         }
         break;
       case "flower":
         for (let p = 0; p < 6; p += 1) {
           const ang = (p / 6) * Math.PI * 2;
-          mukuGfx.circle(Math.cos(ang) * bodyW * 0.1, Math.sin(ang) * bodyH * 0.22, bodyH * 0.12);
-          mukuGfx.stroke({ color: 0xffffff, width: 1, alpha: a });
+          g.circle(Math.cos(ang) * bodyW * 0.1, Math.sin(ang) * bodyH * 0.22, bodyH * 0.12);
+          g.stroke({ color: 0xffffff, width: 1, alpha: a });
         }
         break;
       case "wind":
         for (let i = -2; i <= 2; i += 1) {
-          mukuGfx.moveTo(-bodyW * 0.42, i * bodyH * 0.16);
-          mukuGfx.quadraticCurveTo(
-            0,
-            i * bodyH * 0.16 - bodyH * 0.18,
-            bodyW * 0.42,
-            i * bodyH * 0.16,
-          );
+          g.moveTo(-bodyW * 0.42, i * bodyH * 0.16);
+          g.quadraticCurveTo(0, i * bodyH * 0.16 - bodyH * 0.18, bodyW * 0.42, i * bodyH * 0.16);
         }
-        mukuGfx.stroke({ color: 0xffffff, width: 1.2, alpha: a });
+        g.stroke({ color: 0xffffff, width: 1.2, alpha: a });
         break;
     }
   }
 
-  function drawLanterns() {
-    lanternsGfx.clear();
+  function drawStallLanterns(stall: Stall) {
+    const g = stall.lanternsGfx;
+    g.clear();
     const S = unit();
-    const lw = S * 0.022;
-    const lh = S * 0.032;
-    for (const l of lanterns) {
-      const tone = lanternTone(l.color);
+    const lw = S * 0.018;
+    const lh = S * 0.026;
+    for (const l of stall.lanterns) {
+      const tone = lanternTone(yataiConfig.lanternColor);
       const flick = 0.92 + 0.08 * Math.sin(totalElapsedMs * 0.006 + l.phase);
-      const lit = l.lit * flick;
+      const lit = stall.lit * flick;
       // グロー
       if (lit > 0.02) {
-        lanternsGfx.circle(l.localX, l.localY, lh * (1.1 + lit * 1.4));
-        lanternsGfx.fill({ color: tone.glow, alpha: 0.12 * lit });
-        lanternsGfx.circle(l.localX, l.localY, lh * (0.7 + lit * 0.7));
-        lanternsGfx.fill({ color: tone.glow, alpha: 0.2 * lit });
+        g.circle(l.localX, l.localY, lh * (1.1 + lit * 1.4));
+        g.fill({ color: tone.glow, alpha: 0.12 * lit });
+        g.circle(l.localX, l.localY, lh * (0.7 + lit * 0.7));
+        g.fill({ color: tone.glow, alpha: 0.2 * lit });
       }
       // 提灯本体（消灯時は暗い紙色）
       const baseAlpha = 0.5 + lit * 0.5;
       const body = lit > 0.02 ? tone.core : 0x6b5a44;
-      lanternsGfx.ellipse(l.localX, l.localY, lw * 0.5, lh * 0.5);
-      lanternsGfx.fill({ color: body, alpha: baseAlpha });
-      lanternsGfx.ellipse(l.localX, l.localY, lw * 0.5, lh * 0.5);
-      lanternsGfx.stroke({ color: 0x2a2118, width: 1, alpha: 0.5 });
+      g.ellipse(l.localX, l.localY, lw * 0.5, lh * 0.5);
+      g.fill({ color: body, alpha: baseAlpha });
+      g.ellipse(l.localX, l.localY, lw * 0.5, lh * 0.5);
+      g.stroke({ color: 0x2a2118, width: 1, alpha: 0.5 });
       // 上下の口金
-      lanternsGfx.rect(l.localX - lw * 0.18, l.localY - lh * 0.5, lw * 0.36, lh * 0.08);
-      lanternsGfx.rect(l.localX - lw * 0.18, l.localY + lh * 0.42, lw * 0.36, lh * 0.08);
-      lanternsGfx.fill({ color: 0x2a2118, alpha: 0.7 });
+      g.rect(l.localX - lw * 0.18, l.localY - lh * 0.5, lw * 0.36, lh * 0.08);
+      g.rect(l.localX - lw * 0.18, l.localY + lh * 0.42, lw * 0.36, lh * 0.08);
+      g.fill({ color: 0x2a2118, alpha: 0.7 });
     }
   }
 
-  // ---- 反射（湖面に映る屋台と提灯） ----
+  // 屋台の列をプール生成・配置。resize と config 変更でジオメトリを組み直す。
+  function layoutStalls() {
+    const S = unit();
+    const W = app.screen.width;
+    const bodyW = S * 0.2;
+    stallSpacing = bodyW * 2.0;
+    const needed = Math.ceil(W / stallSpacing) + 3;
+
+    while (stalls.length < needed) {
+      stalls.push(createStall());
+    }
+    while (stalls.length > needed) {
+      const extra = stalls.pop();
+      if (extra) {
+        for (const t of extra.inscribed) t.destroy();
+        stallsLayer.removeChild(extra.container);
+        extra.container.destroy({ children: true });
+      }
+    }
+
+    // 隣同士が同色にならないよう色を割り当ててから、等間隔に並べる
+    assignStallColors();
+    for (let i = 0; i < stalls.length; i += 1) {
+      const stall = stalls[i]!;
+      stall.x = i * stallSpacing - stallSpacing;
+      buildStall(stall);
+    }
+  }
+
+  // 屋台が画面左へ抜けたら、列の右端へ回して未点灯の新しい屋台として戻す
+  function recycleStall(stall: Stall) {
+    let maxX = -Infinity;
+    let rightmostColor: YataiBaseColor | undefined;
+    for (const s of stalls) {
+      if (s !== stall && s.x > maxX) {
+        maxX = s.x;
+        rightmostColor = s.baseColor;
+      }
+    }
+    stall.x = maxX + stallSpacing;
+    stall.baseColor = pickStallColor(rightmostColor); // 末尾の台と被らない色に
+    stall.lit = 0;
+    stall.target = 0;
+    stall.scale = 0.9 + Math.random() * 0.2;
+    for (const t of stall.inscribed) {
+      stall.container.removeChild(t);
+      t.destroy();
+    }
+    stall.inscribed.length = 0;
+    buildStall(stall);
+  }
+
+  // ---- 反射（湖面に映る屋台の提灯） ----
   function drawReflection() {
     reflectionGfx.clear();
     const horizonY = getHorizonY();
     const S = unit();
-    const bodyW = S * 0.3;
-    const bodyH = S * 0.15;
-    const cx = yatai.position.x;
-    const cy = yatai.position.y;
-    const reflAlpha = (0.18 + brightness * 0.22) * (0.9 + Math.sin(totalElapsedMs * 0.0018) * 0.1);
     const shimmer = Math.sin(totalElapsedMs * 0.0023) * 4;
 
-    // 本体シルエットの反射
-    const bodyReflY = horizonY + (horizonY - cy) + bodyH;
-    reflectionGfx.roundRect(cx - bodyW * 0.5 + shimmer, bodyReflY, bodyW, bodyH, S * 0.012);
-    reflectionGfx.fill({ color: YATAI_BASE_COLORS[yataiConfig.baseColor], alpha: reflAlpha * 0.7 });
-
-    // 提灯の灯りの反射（縦に伸びる光）
-    for (const l of lanterns) {
-      if (l.lit <= 0.05) continue;
-      const tone = lanternTone(l.color);
-      const gx = cx + l.localX + shimmer;
-      const gReflY = horizonY + (horizonY - (cy + l.localY));
-      for (let i = 0; i < 6; i += 1) {
-        const yy = gReflY + i * (S * 0.014);
-        const ww =
-          S * 0.012 * (1.2 - i * 0.14) + Math.sin(totalElapsedMs * 0.004 + i + l.phase) * 2;
-        reflectionGfx.ellipse(gx, yy, Math.max(1.5, ww), 1.6);
-        reflectionGfx.fill({ color: tone.glow, alpha: 0.22 * l.lit * (1 - i / 6) });
+    for (const stall of stalls) {
+      if (stall.lit <= 0.05) continue;
+      const tone = lanternTone(yataiConfig.lanternColor);
+      for (const l of stall.lanterns) {
+        const gx = stall.x + l.localX * stall.scale + shimmer;
+        // 軒の提灯は地平より上。地平で折り返して下へ伸ばす。
+        const lanternWorldY = horizonY + l.localY * stall.scale;
+        const gReflY = horizonY + (horizonY - lanternWorldY);
+        for (let i = 0; i < 5; i += 1) {
+          const yy = gReflY + i * (S * 0.014);
+          const ww =
+            S * 0.01 * (1.2 - i * 0.16) + Math.sin(totalElapsedMs * 0.004 + i + l.phase) * 2;
+          reflectionGfx.ellipse(gx, yy, Math.max(1.2, ww), 1.4);
+          reflectionGfx.fill({ color: tone.glow, alpha: 0.18 * stall.lit * (1 - i / 5) });
+        }
       }
     }
   }
@@ -537,11 +599,18 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     fallingLyrics.push({ gfx: t, x, startY: y, life: 0, maxLife: 0.9 });
   }
 
-  function spawnLightParticle(fromX: number, fromY: number, lanternIndex: number, hue: number) {
+  function spawnLightParticle(
+    fromX: number,
+    fromY: number,
+    stall: Stall,
+    hue: number,
+    text: string,
+    category: NightWordCategory,
+  ) {
     const g = new Graphics();
     lightLayer.addChild(g);
-    // 制御点：いったん上へ膨らんでから提灯へ吸い込まれる弧
-    const ctrlX = (fromX + (yatai.position.x + lanterns[lanternIndex]!.localX)) * 0.5;
+    // 制御点：いったん上へ膨らんでから屋台へ吸い込まれる弧
+    const ctrlX = (fromX + stall.x) * 0.5;
     const ctrlY = Math.min(fromY, getHorizonY()) - app.screen.height * 0.12;
     lightParticles.push({
       gfx: g,
@@ -549,11 +618,13 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       fromY,
       ctrlX,
       ctrlY,
-      lanternIndex,
+      stall,
       life: 0,
-      maxLife: 1.1,
+      maxLife: 1.0,
       hue,
       arrived: false,
+      text,
+      category,
     });
   }
 
@@ -626,27 +697,32 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     community.push({ data, gfx, baseY: data.y });
   }
 
-  function inscribeLyric(text: string, category: NightWordCategory) {
-    if (inscribed.length >= 5) {
-      const oldest = inscribed.shift();
+  // 灯った屋台の幕に歌詞を刻む
+  function inscribeLyric(stall: Stall, text: string, category: NightWordCategory) {
+    if (stall.inscribed.length >= MAX_INSCRIBED_PER_STALL) {
+      const oldest = stall.inscribed.shift();
       if (oldest) {
-        yatai.removeChild(oldest);
+        stall.container.removeChild(oldest);
         oldest.destroy();
       }
     }
     const color = categoryColorNight(category);
     const S = unit();
-    const bodyW = S * 0.3;
-    const bodyH = S * 0.15;
+    const bodyW = S * 0.2;
+    const bodyH = S * 0.1;
     const t = new Text({
       text: text.slice(0, 3),
-      style: { fontFamily: FONT_FAMILY, fontSize: Math.max(9, bodyH * 0.26), fill: color.fill },
+      style: { fontFamily: FONT_FAMILY, fontSize: Math.max(8, bodyH * 0.26), fill: color.fill },
     });
     t.anchor.set(0.5);
-    t.position.set((Math.random() - 0.5) * bodyW * 0.7, (Math.random() - 0.5) * bodyH * 0.5);
+    t.position.set(
+      (Math.random() - 0.5) * bodyW * 0.7,
+      -bodyH * 0.5 + (Math.random() - 0.5) * bodyH * 0.5,
+    );
     t.alpha = 0.85;
-    yatai.addChildAt(t, yatai.getChildIndex(wishText));
-    inscribed.push(t);
+    // 屋根より下（本体の上）に差し込む
+    stall.container.addChildAt(t, stall.container.getChildIndex(stall.roofGfx));
+    stall.inscribed.push(t);
   }
 
   function applyMood(category: NightWordCategory) {
@@ -656,24 +732,28 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     moodIntensity = Math.min(1, moodIntensity + 0.22);
   }
 
-  function lightNextLantern(): number {
-    // 未点灯の提灯を順に灯す。すべて灯っていれば一番暗いものを灯し直す。
-    let idx = -1;
-    for (let i = 0; i < lanterns.length; i += 1) {
-      const j = (nextLanternToLight + i) % lanterns.length;
-      if (lanterns[j]!.target < 0.5) {
-        idx = j;
-        break;
+  // 画面内で未点灯の屋台のうち、クリック位置にいちばん近いものを選ぶ。
+  // すべて灯っていれば画面内で最も暗い屋台を選び直す。
+  function pickTargetStall(clickX: number): Stall | null {
+    const W = app.screen.width;
+    let best: Stall | null = null;
+    let bestDist = Infinity;
+    for (const stall of stalls) {
+      if (stall.x < 0 || stall.x > W) continue;
+      if (stall.target >= 0.6) continue;
+      const d = Math.abs(stall.x - clickX);
+      if (d < bestDist) {
+        bestDist = d;
+        best = stall;
       }
     }
-    if (idx < 0) {
-      idx = 0;
-      for (let i = 1; i < lanterns.length; i += 1) {
-        if (lanterns[i]!.lit < lanterns[idx]!.lit) idx = i;
-      }
+    if (best) return best;
+    // 全点灯済み：画面内で最も暗い屋台へ
+    for (const stall of stalls) {
+      if (stall.x < 0 || stall.x > W) continue;
+      if (!best || stall.lit < best.lit) best = stall;
     }
-    nextLanternToLight = (idx + 1) % lanterns.length;
-    return idx;
+    return best;
   }
 
   function dropLyric(lyric: NightSelectedLyric) {
@@ -685,25 +765,24 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     // 1) 歌詞が光の粒になる（その場で浮かんで消える）
     spawnFallingLyric(x, y, lyric.text, lyric.category);
 
-    // 2) 少し遅れて光の粒が提灯へ飛ぶ
-    const lanternIndex = lightNextLantern();
-    window.setTimeout(() => {
-      spawnLightParticle(x, y, lanternIndex, color.hue);
-    }, 360);
+    // 2) 少し遅れて光の粒が「いま画面にいる屋台」へ飛ぶ
+    const target = pickTargetStall(x);
+    if (target) {
+      window.setTimeout(() => {
+        spawnLightParticle(x, y, target, color.hue, lyric.text, lyric.category);
+      }, 300);
+    }
 
-    // 3) 屋台幕に歌詞を刻む
-    inscribeLyric(lyric.text, lyric.category);
-
-    // 4) 全体を少し明るくする
+    // 3) 全体を少し明るくする
     brightnessBoost = Math.min(0.3, brightnessBoost + 0.08);
 
-    // 5) 周囲の提灯を追加（festival は出やすい）
+    // 4) 周囲の提灯を追加（festival は出やすい）
     const spawnProb = lyric.category === "festival" ? 0.85 : 0.5;
     if (Math.random() < spawnProb) {
       addCommunityLanternFromLyric(lyric);
     }
 
-    // 6) wish は星を増やす（増えすぎないよう上限でトリム）
+    // 5) wish は星を増やす（増えすぎないよう上限でトリム）
     if (lyric.category === "wish") {
       const w = app.screen.width;
       const horizonY = getHorizonY();
@@ -722,6 +801,313 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
   }
 
+  // ---- 手前の影絵（初音ミク風）の歩行 ----
+  function updateMiku(dt: number) {
+    const w = app.screen.width;
+    const h = app.screen.height;
+    const H = h * 0.52; // 影絵の全高（ロングテール込みで足元近くまで）
+    const groundY = h * 0.95; // 足元
+    const hipX = w * 0.3; // 左寄りに立たせる（屋台の灯りを隠しすぎない）
+
+    // 歩くテンポは流れの速さに連動（速く流れるほど速く歩いて見える）
+    const cadence = (scrollSpeed / Math.max(1, unit())) * 16 + 2.2;
+    mikuPhase += dt * cadence;
+    const ph = mikuPhase;
+
+    // 体の縦配置（横向き・スリムな自然体型, 約7頭身）
+    const legLen = H * 0.5;
+    const bob = Math.sin(ph * 2) * H * 0.01; // 上下の弾み
+    const hipY = groundY - legLen + bob;
+    const torsoLen = H * 0.25;
+    const shoulderY = hipY - torsoLen;
+    const neckLen = H * 0.028;
+    const headR = H * 0.075;
+    const headCX = hipX; // 頭は肩の真上（前傾＝お辞儀に見えないように）
+    const headCY = shoulderY - neckLen - headR * 0.85;
+
+    // 体の横幅（肩→くびれ→腰）
+    const shoulderHalf = H * 0.07;
+    const waistY = shoulderY + torsoLen * 0.58;
+    const waistHalf = H * 0.044;
+    const hipHalf = H * 0.062;
+    const neckHalf = H * 0.018;
+
+    // 脚（左右で半周ずらして交互に踏み出す）
+    const stride = H * 0.1;
+    const lift = H * 0.045;
+    const footOf = (p: number) => {
+      const sx = hipX + Math.sin(p) * stride;
+      const up = Math.max(0, Math.cos(p)) * lift;
+      return { x: sx, y: groundY - up };
+    };
+    const hipJointFront = hipX + H * 0.025;
+    const hipJointBack = hipX - H * 0.025;
+    const kneeOf = (originX: number, f: { x: number; y: number }) => ({
+      x: (originX + f.x) / 2 + H * 0.022, // 前方へ膝を曲げる
+      y: (hipY + f.y) / 2,
+    });
+    const footFront = footOf(ph);
+    const footBack = footOf(ph + Math.PI);
+    const kneeFront = kneeOf(hipJointFront, footFront);
+    const kneeBack = kneeOf(hipJointBack, footBack);
+
+    // 腕（脚と逆位相、肩から下げて前後に振る）
+    const armOf = (shoulderJX: number, p: number) => {
+      const sgn = Math.sin(p);
+      const elbow = { x: shoulderJX + sgn * H * 0.04, y: shoulderY + torsoLen * 0.45 };
+      const wrist = { x: elbow.x + sgn * H * 0.045, y: shoulderY + torsoLen * 0.82 };
+      return { elbow, wrist };
+    };
+    const shoulderJFront = hipX + H * 0.018;
+    const shoulderJBack = hipX - H * 0.018;
+    const armFront = armOf(shoulderJFront, ph + Math.PI);
+    const armBack = armOf(shoulderJBack, ph);
+
+    // ツインテール（後頭部の結び目から後ろ＝左へ大きく流れる）
+    const attX = headCX - headR * 0.7;
+    const attY = headCY - headR * 0.35;
+    const sway = Math.sin(ph + 1.0) * H * 0.025;
+
+    // 手足の太さ（付け根→先へテーパー）
+    const thighW = H * 0.06;
+    const kneeW = H * 0.04;
+    const ankleW = H * 0.026;
+    const upperArmW = H * 0.038;
+    const elbowW = H * 0.03;
+    const wristW = H * 0.024;
+
+    // 直線テーパーの手足を描く（上節 → 関節 → 先端の2本続き）
+    const drawLimb = (
+      g: Graphics,
+      color: number,
+      alpha: number,
+      ox: number,
+      oy: number,
+      jx: number,
+      jy: number,
+      ex: number,
+      ey: number,
+      w0: number,
+      w1: number,
+      w2: number,
+    ) => {
+      taperedRibbon(g, ox, oy, (ox + jx) / 2, (oy + jy) / 2, jx, jy, w0, w1, color, alpha);
+      taperedRibbon(g, jx, jy, (jx + ex) / 2, (jy + ey) / 2, ex, ey, w1, w2, color, alpha);
+    };
+    const drawFoot = (g: Graphics, color: number, alpha: number, fx: number, fy: number) => {
+      // 進行方向(右)へ伸びるブーツ先端（ヒール付き）
+      g.poly([
+        fx - H * 0.02,
+        fy - H * 0.012,
+        fx + H * 0.04,
+        fy - H * 0.006,
+        fx + H * 0.046,
+        fy + H * 0.012,
+        fx - H * 0.022,
+        fy + H * 0.014,
+      ]);
+      g.fill({ color, alpha });
+      g.rect(fx - H * 0.016, fy + H * 0.012, H * 0.013, H * 0.022);
+      g.fill({ color, alpha });
+    };
+    // ロングツインテール（後頭部 → 背後へなだらかに流れ、膝〜脛の高さで宙に尖る）
+    const drawTail = (g: Graphics, color: number, alpha: number, bulge: number, w0: number) => {
+      const midX = attX - H * 0.13 + bulge + sway;
+      const midY = shoulderY + torsoLen * 0.55;
+      taperedRibbon(
+        g,
+        attX,
+        attY,
+        attX - H * 0.1,
+        attY + H * 0.12,
+        midX,
+        midY,
+        w0,
+        w0 * 0.82,
+        color,
+        alpha,
+      );
+      const endX = attX - H * 0.2 + bulge * 1.3 + sway * 1.5;
+      const endY = hipY + legLen * 0.5;
+      taperedRibbon(
+        g,
+        midX,
+        midY,
+        midX - H * 0.06,
+        midY + H * 0.16,
+        endX,
+        endY,
+        w0 * 0.82,
+        H * 0.01,
+        color,
+        alpha,
+      );
+    };
+
+    const paint = (g: Graphics, color: number, alpha: number) => {
+      g.clear();
+      // ① 最奥：ロングツインテール2本（膨らみを変えて2本に見せる）
+      drawTail(g, color, alpha, -H * 0.03, H * 0.088);
+      drawTail(g, color, alpha, H * 0.035, H * 0.072);
+
+      // ② 奥側（後ろ）の腕・脚（付け根は体内から始めて繋ぎ目を作らない）
+      drawLimb(
+        g,
+        color,
+        alpha,
+        shoulderJBack,
+        shoulderY + H * 0.03,
+        armBack.elbow.x,
+        armBack.elbow.y,
+        armBack.wrist.x,
+        armBack.wrist.y,
+        upperArmW,
+        elbowW,
+        wristW,
+      );
+      g.circle(armBack.wrist.x, armBack.wrist.y, wristW * 0.7); // 手
+      g.fill({ color, alpha });
+      drawLimb(
+        g,
+        color,
+        alpha,
+        hipJointBack,
+        hipY - H * 0.03,
+        kneeBack.x,
+        kneeBack.y,
+        footBack.x,
+        footBack.y,
+        thighW,
+        kneeW,
+        ankleW,
+      );
+      drawFoot(g, color, alpha, footBack.x, footBack.y);
+
+      // ③ 首 → 胴（肩 → くびれ → 腰）をひと続きの曲線で
+      g.poly([
+        headCX - neckHalf,
+        headCY + headR * 0.55,
+        headCX + neckHalf,
+        headCY + headR * 0.55,
+        hipX + neckHalf,
+        shoulderY,
+        hipX - neckHalf,
+        shoulderY,
+      ]);
+      g.fill({ color, alpha });
+      g.moveTo(hipX - shoulderHalf, shoulderY);
+      g.quadraticCurveTo(
+        hipX - shoulderHalf * 1.02,
+        (shoulderY + waistY) / 2,
+        hipX - waistHalf,
+        waistY,
+      );
+      g.quadraticCurveTo(hipX - hipHalf * 1.05, (waistY + hipY) / 2, hipX - hipHalf, hipY);
+      g.lineTo(hipX + hipHalf, hipY);
+      g.quadraticCurveTo(hipX + hipHalf * 1.05, (waistY + hipY) / 2, hipX + waistHalf, waistY);
+      g.quadraticCurveTo(
+        hipX + shoulderHalf * 1.02,
+        (shoulderY + waistY) / 2,
+        hipX + shoulderHalf,
+        shoulderY,
+      );
+      g.quadraticCurveTo(hipX, shoulderY - H * 0.018, hipX - shoulderHalf, shoulderY); // なで肩の上辺
+      g.fill({ color, alpha });
+
+      // ④ スカート（フレア）
+      g.poly([
+        hipX - hipHalf * 0.95,
+        hipY - H * 0.01,
+        hipX + hipHalf * 0.95,
+        hipY - H * 0.01,
+        hipX + hipHalf * 1.6,
+        hipY + H * 0.13,
+        hipX - hipHalf * 1.6,
+        hipY + H * 0.13,
+      ]);
+      g.fill({ color, alpha });
+
+      // ⑤ 手前の腕・脚
+      drawLimb(
+        g,
+        color,
+        alpha,
+        shoulderJFront,
+        shoulderY + H * 0.03,
+        armFront.elbow.x,
+        armFront.elbow.y,
+        armFront.wrist.x,
+        armFront.wrist.y,
+        upperArmW,
+        elbowW,
+        wristW,
+      );
+      g.circle(armFront.wrist.x, armFront.wrist.y, wristW * 0.7); // 手
+      g.fill({ color, alpha });
+      drawLimb(
+        g,
+        color,
+        alpha,
+        hipJointFront,
+        hipY - H * 0.03,
+        kneeFront.x,
+        kneeFront.y,
+        footFront.x,
+        footFront.y,
+        thighW,
+        kneeW,
+        ankleW,
+      );
+      drawFoot(g, color, alpha, footFront.x, footFront.y);
+
+      // ⑥ 頭（横顔）
+      g.circle(headCX, headCY, headR);
+      g.fill({ color, alpha });
+      // 結び目（ツインテールの付け根。頭の輪郭に沿わせる小さめ）
+      g.circle(attX + headR * 0.1, attY, headR * 0.3);
+      g.fill({ color, alpha });
+      // 前髪（頭頂を左右対称ぎみに覆い、顔側=右に毛先。輪郭内に収めてトゲを作らない）
+      g.poly([
+        headCX - headR * 0.95,
+        headCY - headR * 0.3,
+        headCX - headR * 0.55,
+        headCY - headR * 1.05,
+        headCX - headR * 0.15,
+        headCY - headR * 0.6,
+        headCX + headR * 0.25,
+        headCY - headR * 1.05,
+        headCX + headR * 0.7,
+        headCY - headR * 0.55,
+        headCX + headR * 0.98,
+        headCY - headR * 0.05,
+        headCX + headR * 0.78,
+        headCY + headR * 0.32, // 顔側の毛先
+        headCX + headR * 0.4,
+        headCY,
+        headCX - headR * 0.5,
+        headCY,
+      ]);
+      g.fill({ color, alpha });
+      // アホ毛（控えめな跳ね毛）
+      taperedRibbon(
+        g,
+        headCX - headR * 0.05,
+        headCY - headR * 0.98,
+        headCX + headR * 0.3,
+        headCY - headR * 1.45,
+        headCX + headR * 0.8,
+        headCY - headR * 1.2,
+        H * 0.007,
+        H * 0.003,
+        color,
+        alpha,
+      );
+    };
+
+    paint(mikuGlow, 0x33b8ae, 0.4); // ミクのティールでにじむ控えめな縁取り光
+    paint(mikuBody, 0x070b16, 1); // ほぼ黒の影絵本体
+  }
+
   // ---- メインループ ----
   app.ticker.add((ticker) => {
     const dt = ticker.deltaMS / 1000;
@@ -734,41 +1120,41 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     moodIntensity *= Math.exp(-dt * 0.2);
     if (flareTimer > 0) flareTimer = Math.max(0, flareTimer - dt);
 
-    // 提灯の点灯度を target へ補間。明るいセクションでは下限が上がる。
-    const litFloor = section === "intro" ? 0 : brightness * 0.25;
-    for (const l of lanterns) {
-      const tgt = Math.max(l.target, litFloor);
-      l.lit += (tgt - l.lit) * Math.min(1, dt * 3);
-    }
-
-    // 屋台の配置（中央付近・ゆるい揺れと前進感）
     const horizonY = getHorizonY();
     const S = unit();
-    const bodyH = S * 0.15;
-    const wheelR = S * 0.045;
-    const sway = Math.sin(totalElapsedMs * 0.0007) * S * 0.02 * (0.5 + brightness);
-    const bob = Math.sin(totalElapsedMs * 0.0013) * S * 0.006;
-    yatai.position.set(app.screen.width * 0.5 + sway, horizonY - bodyH * 0.5 - wheelR * 0.6 + bob);
-    yatai.rotation = Math.sin(totalElapsedMs * 0.0009) * 0.01;
-    // 前進感：車輪を回す（サビで速く）
-    const isChorus = section === "chorus" || section === "finalChorus";
-    wheelSpin += dt * (isChorus ? 2.2 : 1.0) * (0.4 + brightness);
-    wheelLeft.rotation = wheelSpin;
-    wheelRight.rotation = wheelSpin;
 
-    drawLanterns();
+    // 自分の歩み：屋台の列を左へ流す（サビで歩が速くなる）
+    const isChorus = section === "chorus" || section === "finalChorus";
+    const targetSpeed = S * (isChorus ? 0.09 : 0.05) * (0.55 + brightness * 0.45);
+    scrollSpeed += (targetSpeed - scrollSpeed) * Math.min(1, dt * 1.5);
+
+    // 提灯の点灯下限（サビ突入時は flareTimer でわずかに底上げ）
+    const litFloor = section === "intro" ? 0 : brightness * 0.15 + flareTimer * 0.15;
+
+    for (const stall of stalls) {
+      stall.x -= scrollSpeed * dt;
+      if (stall.x < -stallSpacing) {
+        recycleStall(stall);
+      }
+      const tgt = Math.max(stall.target, litFloor);
+      stall.lit += (tgt - stall.lit) * Math.min(1, dt * 3);
+      stall.container.position.set(stall.x, horizonY);
+      // 奥行き感：小さい屋台はやや淡く
+      stall.container.alpha = 0.8 + (stall.scale - 0.9) * 1.0;
+      drawStallLanterns(stall);
+    }
+
     drawReflection();
 
-    // 光の粒（クリック歌詞→提灯）
+    // 光の粒（クリック歌詞 → 屋台）
     for (let i = lightParticles.length - 1; i >= 0; i -= 1) {
       const p = lightParticles[i]!;
       p.life += dt;
       const ratio = Math.min(1, p.life / p.maxLife);
       const eased = ratio * ratio;
-      // 目標は移動する提灯の現在位置
-      const lantern = lanterns[p.lanternIndex]!;
-      const toX = yatai.position.x + lantern.localX;
-      const toY = yatai.position.y + lantern.localY;
+      // 目標は流れている屋台の現在位置（提灯列の中央）
+      const toX = p.stall.x;
+      const toY = horizonY + p.stall.lanternLocalY * p.stall.scale;
       // 二次ベジェ
       const mt = 1 - eased;
       const px = mt * mt * p.fromX + 2 * mt * eased * p.ctrlX + eased * eased * toX;
@@ -782,8 +1168,9 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
 
       if (!p.arrived && ratio >= 1) {
         p.arrived = true;
-        // 提灯を灯す
-        lantern.target = 1;
+        // 屋台に灯をともす
+        p.stall.target = 1;
+        inscribeLyric(p.stall, p.text, p.category);
         spawnBurst(toX, toY, p.hue);
       }
       if (ratio >= 1) {
@@ -793,7 +1180,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       }
     }
 
-    // バースト（提灯点灯時の光の輪）
+    // バースト（屋台点灯時の光の輪）
     for (let i = bursts.length - 1; i >= 0; i -= 1) {
       const b = bursts[i]!;
       b.life += dt;
@@ -869,27 +1256,38 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       addAmbientCommunityLantern();
     }
 
+    // 手前の影絵（初音ミク風）を歩かせる
+    updateMiku(dt);
+
     // 背景は間引いて更新（リサイズ・星の瞬き・月の反射のため）
     if (Math.floor(totalElapsedMs / 80) % 2 === 0) {
       drawSkyAndLake();
     }
   });
 
-  function lightAllLanterns() {
-    for (const l of lanterns) l.target = 1;
+  // 画面内の屋台を一斉に灯す（サビ）
+  function lightVisibleStalls() {
+    const W = app.screen.width;
+    for (const stall of stalls) {
+      if (stall.x >= -stallSpacing && stall.x <= W + stallSpacing) {
+        stall.target = 1;
+      }
+    }
   }
 
   function setSection(s: SongSection) {
     if (s !== section && (s === "chorus" || s === "finalChorus")) {
       flareTimer = 1.8;
-      lightAllLanterns(); // サビは提灯が一斉に灯る
+      lightVisibleStalls(); // サビは通りの屋台が一斉に灯る
     }
     section = s;
   }
 
   function setYataiConfig(config: YataiConfig) {
     yataiConfig = config;
-    rebuildYatai();
+    // 設定色を少し多めに混ぜつつ、通りの屋台へ彩りを割り当て直す
+    assignStallColors();
+    for (const stall of stalls) buildStall(stall);
     drawSkyAndLake();
   }
 
@@ -900,7 +1298,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
 
   function resize() {
     regenerateStars();
-    rebuildYatai();
+    layoutStalls();
     drawSkyAndLake();
   }
 
@@ -930,18 +1328,16 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       c.gfx.destroy({ children: true });
     }
     community.length = 0;
-    for (const t of inscribed) {
-      yatai.removeChild(t);
-      t.destroy();
+    // 屋台を初期状態（すべて消灯）へ戻し、刻まれた歌詞も消す
+    for (const stall of stalls) {
+      stall.lit = 0;
+      stall.target = 0;
+      for (const t of stall.inscribed) {
+        stall.container.removeChild(t);
+        t.destroy();
+      }
+      stall.inscribed.length = 0;
     }
-    inscribed.length = 0;
-    // 提灯を消灯（intro の初期状態へ）
-    for (let i = 0; i < lanterns.length; i += 1) {
-      const init = i < 2 ? 0.35 : 0;
-      lanterns[i]!.lit = init;
-      lanterns[i]!.target = init;
-    }
-    nextLanternToLight = 0;
     brightness = SECTION_BRIGHTNESS.intro;
     brightnessBoost = 0;
     regenerateStars();
@@ -954,7 +1350,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
 
   // 初期化
   regenerateStars();
-  rebuildYatai();
+  layoutStalls();
   drawSkyAndLake();
 
   return {
@@ -966,6 +1362,46 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     resize,
     dispose,
   };
+}
+
+// 始点→制御点→終点の二次ベジェに沿って、幅が w0→w1 へテーパーする帯を塗る。
+// ツインテールのような流れる形に使う。
+function taperedRibbon(
+  g: Graphics,
+  x0: number,
+  y0: number,
+  cx: number,
+  cy: number,
+  x1: number,
+  y1: number,
+  w0: number,
+  w1: number,
+  color: number,
+  alpha: number,
+) {
+  const N = 12;
+  const top: Array<[number, number]> = [];
+  const bot: Array<[number, number]> = [];
+  for (let i = 0; i <= N; i += 1) {
+    const t = i / N;
+    const mt = 1 - t;
+    const x = mt * mt * x0 + 2 * mt * t * cx + t * t * x1;
+    const y = mt * mt * y0 + 2 * mt * t * cy + t * t * y1;
+    // 接線から法線を求めて左右へ半幅ぶん広げる
+    const dx = 2 * mt * (cx - x0) + 2 * t * (x1 - cx);
+    const dy = 2 * mt * (cy - y0) + 2 * t * (y1 - cy);
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const wd = (w0 + (w1 - w0) * t) * 0.5;
+    top.push([x + nx * wd, y + ny * wd]);
+    bot.push([x - nx * wd, y - ny * wd]);
+  }
+  const pts: number[] = [];
+  for (const p of top) pts.push(p[0], p[1]);
+  for (let i = bot.length - 1; i >= 0; i -= 1) pts.push(bot[i]![0], bot[i]![1]);
+  g.poly(pts);
+  g.fill({ color, alpha });
 }
 
 function lerpColor(a: number, b: number, t: number): number {
