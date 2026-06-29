@@ -887,6 +887,31 @@ body {
   line-height: 1.9;
 }
 
+/* 称号（flightTitle） */
+.ending-flight-title {
+  margin: 0 0 4px;
+  font-size: clamp(18px, 2.4vw, 26px);
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  color: var(--brand, var(--text-strong));
+  text-shadow: 0 2px 16px rgba(46, 143, 190, 0.22);
+}
+
+/* 駆け引きの記録（湖風・共鳴） */
+.ending-stats {
+  display: flex;
+  gap: 22px;
+  justify-content: center;
+  margin: 12px 0 6px;
+}
+
+.ending-stat {
+  margin: 0;
+  font-size: clamp(13px, 1.4vw, 16px);
+  letter-spacing: 0.16em;
+  color: var(--text-body);
+}
+
 .ending-actions {
   display: flex;
   gap: 12px;

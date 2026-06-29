@@ -124,7 +124,7 @@ export interface TextAliveOptions {
   chorusOverlayFix?: boolean;
 }
 
-const DEFAULT_APP_NAME = "湖風の歌詞凧";
+const DEFAULT_APP_NAME = "空と灯りのソナーレ";
 
 export function createTextAliveController(
   events: SongPlayerEvents,
@@ -149,6 +149,9 @@ export function createTextAliveController(
     let lastTimeSec = 0;
     let resolved = false;
     let endedFired = false;
+    // 再生が曲頭側を通過したか。リセット直後に末尾付近の古い時刻イベントで
+    // 終了が誤発火し、エンディングが開き直すのを防ぐためのガード。
+    let seenLow = false;
 
     // 読み込みが進まないまま固まった場合の保険（無限ローディング防止）
     const LOAD_TIMEOUT_MS = 30_000;
@@ -182,9 +185,12 @@ export function createTextAliveController(
     const songPlayer: SongPlayer = {
       play() {
         endedFired = false;
+        seenLow = false;
         const dur = durationSec();
         if (dur > 0 && currentTime >= dur - 0.05) {
           player.requestMediaSeek(0);
+          currentTime = 0;
+          lastTimeSec = 0;
         }
         player.requestPlay();
       },
@@ -193,6 +199,7 @@ export function createTextAliveController(
       },
       reset() {
         endedFired = false;
+        seenLow = false;
         currentTime = 0;
         lastTimeSec = 0;
         player.requestStop();
@@ -296,6 +303,14 @@ export function createTextAliveController(
         currentTime = positionMs / 1000;
         lastTimeSec = currentTime;
         events.onTimeUpdate(currentTime);
+        // 曲頭側を一度通過したら以降の末尾到達を終了とみなす（TextAliveは自然終了で
+        // onStop を投げないことがある）。リセット直後の古い末尾イベントでは発火しない。
+        const dur = durationSec();
+        if (dur > 0 && currentTime < dur * 0.8) seenLow = true;
+        if (!endedFired && seenLow && dur > 0 && currentTime >= dur - 0.1) {
+          endedFired = true;
+          events.onEnded();
+        }
       },
       onPlay: () => {
         endedFired = false;
@@ -303,11 +318,17 @@ export function createTextAliveController(
       },
       onPause: () => {
         events.onPlayStateChange(false);
+        // 末尾付近での一時停止＝自然終了とみなす（手動の一時停止では発火しない）
+        const dur = durationSec();
+        if (!endedFired && seenLow && dur > 0 && lastTimeSec >= dur - 0.3) {
+          endedFired = true;
+          events.onEnded();
+        }
       },
       onStop: () => {
         events.onPlayStateChange(false);
         const dur = durationSec();
-        if (!endedFired && dur > 0 && lastTimeSec >= dur - 0.25) {
+        if (!endedFired && seenLow && dur > 0 && lastTimeSec >= dur - 0.25) {
           endedFired = true;
           events.onEnded();
         }

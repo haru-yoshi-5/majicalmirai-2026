@@ -41,7 +41,7 @@ async function createPlayerBundle(events: SongPlayerEvents, song: SongDef): Prom
     songUrl: song.songUrl,
     mapIds: song.mapIds,
     chorusOverlayFix: song.chorusOverlayFix,
-    appName: "歌灯りの御殿屋台",
+    appName: "空と灯りのソナーレ",
   });
   return {
     player: bundle.player,

@@ -9,6 +9,12 @@ export interface EndingOverlayOptions {
 export interface EndingShowParams {
   kiteConfig: KiteConfig;
   selectedLyrics: ReadonlyArray<SelectedLyric>;
+  /** 飛行の称号（高度・安定度・共鳴から生成）。未指定なら称号欄を出さない。 */
+  flightTitle?: string;
+  /** 湖風の回数（＝歌詞をクリックした回数）。 */
+  windCount?: number;
+  /** 共鳴した周囲の凧の数。 */
+  resonanceCount?: number;
 }
 
 export function createEndingOverlay(parent: HTMLElement, options: EndingOverlayOptions) {
@@ -27,12 +33,29 @@ export function createEndingOverlay(parent: HTMLElement, options: EndingOverlayO
   title.className = "ending-title";
   title.textContent = "";
 
+  // 称号（flightTitle）
+  const flightLabel = document.createElement("p");
+  flightLabel.className = "ending-label";
+  flightLabel.textContent = "称号";
+
+  const flightTitleEl = document.createElement("p");
+  flightTitleEl.className = "ending-flight-title";
+
   const lastLabel = document.createElement("p");
   lastLabel.className = "ending-label";
   lastLabel.textContent = "最後に選んだ歌詞";
 
   const lastLyric = document.createElement("p");
   lastLyric.className = "ending-last-lyric";
+
+  // 駆け引きの記録（湖風の回数・共鳴した凧の数）
+  const stats = document.createElement("div");
+  stats.className = "ending-stats";
+  const windStat = document.createElement("p");
+  windStat.className = "ending-stat";
+  const resoStat = document.createElement("p");
+  resoStat.className = "ending-stat";
+  stats.append(windStat, resoStat);
 
   const windLabel = document.createElement("p");
   windLabel.className = "ending-label";
@@ -65,8 +88,11 @@ export function createEndingOverlay(parent: HTMLElement, options: EndingOverlayO
 
   card.appendChild(headline);
   card.appendChild(title);
+  card.appendChild(flightLabel);
+  card.appendChild(flightTitleEl);
   card.appendChild(lastLabel);
   card.appendChild(lastLyric);
+  card.appendChild(stats);
   card.appendChild(windLabel);
   card.appendChild(wordList);
   card.appendChild(actions);
@@ -74,15 +100,31 @@ export function createEndingOverlay(parent: HTMLElement, options: EndingOverlayO
   parent.appendChild(root);
 
   function show(params: EndingShowParams) {
-    const { kiteConfig, selectedLyrics } = params;
+    const { kiteConfig, selectedLyrics, flightTitle, windCount, resonanceCount } = params;
     const last = selectedLyrics.length > 0 ? selectedLyrics[selectedLyrics.length - 1]! : null;
     title.textContent = `「${generateKiteName(last, kiteConfig)}」`;
+
+    // 称号（指定があるときだけ表示）
+    if (flightTitle) {
+      flightTitleEl.textContent = flightTitle;
+      flightLabel.style.display = "";
+      flightTitleEl.style.display = "";
+    } else {
+      flightLabel.style.display = "none";
+      flightTitleEl.style.display = "none";
+    }
 
     if (last) {
       lastLyric.textContent = last.text;
     } else {
       lastLyric.textContent = "（歌詞には触れなかった）";
     }
+
+    // 駆け引きの記録（湖風の回数・共鳴した凧の数）
+    const wind = windCount ?? selectedLyrics.length;
+    const reso = resonanceCount ?? 0;
+    windStat.textContent = `湖風　${wind}回`;
+    resoStat.textContent = `共鳴した凧　${reso}枚`;
 
     if (selectedLyrics.length === 0) {
       wordList.textContent = kiteConfig.wish;

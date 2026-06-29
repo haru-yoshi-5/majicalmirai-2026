@@ -18,7 +18,7 @@ export function createTitleScreen(parent: HTMLElement, options: TitleScreenOptio
 
   const title = document.createElement("h1");
   title.className = "title-main";
-  title.textContent = "湖風の歌詞凧";
+  title.textContent = "空と灯りのソナーレ";
 
   const sub = document.createElement("p");
   sub.className = "title-sub";

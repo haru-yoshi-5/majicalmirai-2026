@@ -16,6 +16,7 @@ import { createTextAliveLyricSource } from "../state/lyricSource.ts";
 import type { LyricSource } from "../state/lyricSource.ts";
 import { classifyWord } from "../utils/classifyWord.ts";
 import { generateKiteName } from "../utils/generateKiteName.ts";
+import { generateFlightTitle } from "../utils/generateFlightTitle.ts";
 import { loadPastKites, savePastKite } from "../utils/kitePersistence.ts";
 import type { KiteConfig, PastKiteRecord, SelectedLyric } from "../types/kite.ts";
 import { startNightExperience } from "../night/NightApp.ts";
@@ -297,9 +298,17 @@ export function mountApp(root: HTMLElement) {
           onEnded: () => {
             kiteScene?.setSection("ended");
             if (ending && kiteConfig) {
+              const summary = kiteScene?.getFlightSummary() ?? {
+                altitude: 0,
+                stability: 0.7,
+                resonanceCount: 0,
+              };
               ending.show({
                 kiteConfig,
                 selectedLyrics,
+                flightTitle: generateFlightTitle(summary),
+                windCount: selectedLyrics.length,
+                resonanceCount: summary.resonanceCount,
               });
               // 完成した凧を localStorage に保存し、次回以降の遠景（過去凧）に残す
               // TODO(のちに検討): 「もう一度」で再生し直すたびに保存され過去凧が重複登録される。
