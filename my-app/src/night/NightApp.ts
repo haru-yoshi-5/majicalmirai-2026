@@ -28,6 +28,7 @@ import type { LyricSource } from "../state/lyricSource.ts";
 import { createSongSelect } from "../components/SongSelect.ts";
 import { DEFAULT_SONG } from "../data/songs.ts";
 import type { SongDef } from "../data/songs.ts";
+import { generateFestivalTitle } from "./generateFestivalTitle.ts";
 
 // 楽曲は課題曲6曲（src/data/songs.ts）から曲選択画面で選ぶ。昼と同じカタログを共有。
 
@@ -256,7 +257,18 @@ export function startNightExperience(
           onEnded: () => {
             scene?.setSection("ended");
             if (ending && yataiConfig) {
-              ending.show({ yataiConfig, selectedLyrics });
+              const summary = scene?.getFestivalSummary() ?? {
+                brightness: 0,
+                resonanceCount: 0,
+                deepCount: 0,
+              };
+              ending.show({
+                yataiConfig,
+                selectedLyrics,
+                festivalTitle: generateFestivalTitle(summary),
+                lanternCount: selectedLyrics.length,
+                resonanceCount: summary.resonanceCount,
+              });
             }
           },
         },

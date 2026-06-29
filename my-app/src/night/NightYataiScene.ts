@@ -21,6 +21,7 @@ import {
   generateAmbientCommunityLantern,
   generateCommunityLanternFromLyric,
 } from "./generateCommunityLantern.ts";
+import type { FestivalSummary } from "./generateFestivalTitle.ts";
 
 const FONT_FAMILY = '"Hiragino Sans","Yu Gothic UI","Segoe UI",system-ui,sans-serif';
 const LANTERNS_PER_STALL = 5;
@@ -105,7 +106,13 @@ interface SparkFx {
 interface CommunityLanternFx {
   data: CommunityLantern;
   gfx: Container;
+  /** 共鳴の光（resonance に応じて alpha を上げる）。 */
+  glow: Graphics;
   baseY: number;
+  /** 共鳴度 0..1 */
+  resonance: number;
+  /** 一度でも共鳴したか（称号用カウント） */
+  hasResonated: boolean;
 }
 
 interface StarSeed {
@@ -120,6 +127,8 @@ export interface NightYataiScene {
   setSection: (section: SongSection) => void;
   setTime: (time: number) => void;
   dropLyric: (lyric: NightSelectedLyric) => void;
+  /** 曲終了時の祭りサマリー（称号生成に使う）。 */
+  getFestivalSummary: () => FestivalSummary;
   clearAll: () => void;
   resize: () => void;
   dispose: () => void;
@@ -199,6 +208,17 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
   let ambientSpawnTimer = 0;
   let scrollSpeed = 0; // 自分の歩み（屋台が左へ流れる速さ, px/sec）
   let mikuPhase = 0; // 影絵の歩行サイクル位相
+
+  // ---- ゲーム性（夜の祭りを灯す手触り）の状態 ----
+  // ユーザーを評価・失敗させるためではなく、灯していく手触りを出すためのもの。
+  let yataiBrightness = 0; // 0..1 屋台の明るさ（クリックで上昇、時間で微減、サビで大きく）
+  let peakBrightness = 0; // 到達した最大の明るさ（称号用）
+  let lightGauge = 0; // 0..1 歌灯りゲージ（提灯・装飾・反射の輝きで表現。数値は出さない）
+  let lightReserve = 0; // サビ前に溜めた灯り（chorus突入で一斉点灯に解放）
+  let resonanceCount = 0; // 共鳴した周囲の提灯の数（称号用）
+  let deepCount = 0; // deep系（静かな）歌詞を選んだ回数（称号用）
+  let festivalScrollBoost = 0; // festival: 巡行感の一時加速
+  let lightHoldTimer = 0; // deep: 灯りが長持ちする残り時間
 
   const stalls: Stall[] = [];
   let stallSpacing = 200; // 屋台の中心間隔（resize で再計算）
@@ -652,11 +672,17 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
   }
 
-  function buildCommunityLantern(data: CommunityLantern): Container {
+  function buildCommunityLantern(data: CommunityLantern): { container: Container; glow: Graphics } {
     const c = new Container();
-    const g = new Graphics();
     const tone = LANTERN_COLORS[data.color];
     const r = unit() * 0.012 * (0.8 + data.size);
+    // 共鳴の光（背面）。resonance に応じて alpha を上げる。
+    const glow = new Graphics();
+    glow.circle(0, 0, r * 3.4);
+    glow.fill({ color: tone.glow, alpha: 0.6 });
+    glow.alpha = 0;
+    c.addChild(glow);
+    const g = new Graphics();
     g.circle(0, 0, r * 2.4);
     g.fill({ color: tone.glow, alpha: 0.14 });
     g.circle(0, 0, r);
@@ -674,7 +700,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
     c.alpha = data.opacity;
     c.position.set(data.x, data.y);
-    return c;
+    return { container: c, glow };
   }
 
   function addCommunityLanternFromLyric(lyric: NightSelectedLyric) {
@@ -682,9 +708,16 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       width: app.screen.width,
       height: app.screen.height,
     });
-    const gfx = buildCommunityLantern(data);
-    distantLayer.addChild(gfx);
-    community.push({ data, gfx, baseY: data.y });
+    const { container, glow } = buildCommunityLantern(data);
+    distantLayer.addChild(container);
+    community.push({
+      data,
+      gfx: container,
+      glow,
+      baseY: data.y,
+      resonance: 0,
+      hasResonated: false,
+    });
   }
 
   function addAmbientCommunityLantern() {
@@ -692,9 +725,16 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       width: app.screen.width,
       height: app.screen.height,
     });
-    const gfx = buildCommunityLantern(data);
-    distantLayer.addChild(gfx);
-    community.push({ data, gfx, baseY: data.y });
+    const { container, glow } = buildCommunityLantern(data);
+    distantLayer.addChild(container);
+    community.push({
+      data,
+      gfx: container,
+      glow,
+      baseY: data.y,
+      resonance: 0,
+      hasResonated: false,
+    });
   }
 
   // 灯った屋台の幕に歌詞を刻む
@@ -756,48 +796,98 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     return best;
   }
 
+  // 周囲の提灯を共鳴させる（光らせる）。初共鳴の数を称号用にカウントする。
+  function resonateCommunity(strength: number) {
+    for (const c of community) {
+      c.resonance = Math.min(1, c.resonance + strength);
+      if (!c.hasResonated && c.resonance > 0.5) {
+        c.hasResonated = true;
+        resonanceCount += 1;
+      }
+    }
+  }
+
+  // wish: 夜空に星粒を散らす
+  function addWishStars() {
+    const w = app.screen.width;
+    const horizonY = getHorizonY();
+    for (let i = 0; i < 12; i += 1) {
+      stars.push({
+        x: Math.random() * w,
+        y: Math.random() * horizonY * 0.8,
+        r: 0.5 + Math.random() * 1.6,
+        phase: Math.random() * Math.PI * 2,
+      });
+    }
+    const maxStars = 400;
+    if (stars.length > maxStars) stars.splice(0, stars.length - maxStars);
+  }
+
   function dropLyric(lyric: NightSelectedLyric) {
     const { x, y } = lyric.position;
-    const color = categoryColorNight(lyric.category);
+    const cat = lyric.category;
+    const color = categoryColorNight(cat);
+    const inChorus = section === "chorus" || section === "finalChorus";
 
-    applyMood(lyric.category);
+    applyMood(cat);
 
     // 1) 歌詞が光の粒になる（その場で浮かんで消える）
-    spawnFallingLyric(x, y, lyric.text, lyric.category);
+    spawnFallingLyric(x, y, lyric.text, cat);
 
     // 2) 少し遅れて光の粒が「いま画面にいる屋台」へ飛ぶ
     const target = pickTargetStall(x);
     if (target) {
       window.setTimeout(() => {
-        spawnLightParticle(x, y, target, color.hue, lyric.text, lyric.category);
+        spawnLightParticle(x, y, target, color.hue, lyric.text, cat);
       }, 300);
     }
 
-    // 3) 全体を少し明るくする
+    // 3) 歌詞タイプごとの灯り効果（明るさ・歌灯りゲージ・共鳴・巡行・持続）
+    const chorusMul = inChorus ? 1.7 : 1;
+    let brightGain = 0.06; // neutral 基準
+    let gaugeGain = 0.1;
+    switch (cat) {
+      case "bright": // 明灯：提灯が強く光り、明るさが大きく上がる
+        brightGain = 0.12;
+        gaugeGain = 0.14;
+        break;
+      case "sound": // 響灯：周囲の提灯が共鳴して光る
+        brightGain = 0.05;
+        gaugeGain = 0.11;
+        resonateCommunity(1);
+        break;
+      case "festival": // 巡灯：屋台の巡行が少し速くなる
+        brightGain = 0.06;
+        gaugeGain = 0.12;
+        festivalScrollBoost = 1.4;
+        break;
+      case "deep": // 余灯：灯りが長持ちする
+        brightGain = 0.05;
+        gaugeGain = 0.08;
+        deepCount += 1;
+        lightHoldTimer = 6;
+        break;
+      case "wish": // 祝灯：夜空に星粒、横に光輪
+        brightGain = 0.06;
+        gaugeGain = 0.1;
+        addWishStars();
+        window.setTimeout(() => spawnBurst(x, Math.min(y, getHorizonY()), color.hue), 200);
+        break;
+      case "neutral":
+      default:
+        break;
+    }
+    yataiBrightness = Math.min(1, yataiBrightness + brightGain * chorusMul);
+    lightGauge = Math.min(1, lightGauge + gaugeGain);
     brightnessBoost = Math.min(0.3, brightnessBoost + 0.08);
 
-    // 4) 周囲の提灯を追加（festival は出やすい）
-    const spawnProb = lyric.category === "festival" ? 0.85 : 0.5;
+    // 4) サビ前は灯りを溜める（chorus 突入で一斉点灯に解放）
+    if (!inChorus) lightReserve += 1;
+
+    // 5) 周囲の提灯を追加（sound / festival は出やすい）
+    const spawnProb = cat === "sound" || cat === "festival" ? 0.85 : 0.5;
     if (Math.random() < spawnProb) {
       addCommunityLanternFromLyric(lyric);
-    }
-
-    // 5) wish は星を増やす（増えすぎないよう上限でトリム）
-    if (lyric.category === "wish") {
-      const w = app.screen.width;
-      const horizonY = getHorizonY();
-      for (let i = 0; i < 12; i += 1) {
-        stars.push({
-          x: Math.random() * w,
-          y: Math.random() * horizonY * 0.8,
-          r: 0.5 + Math.random() * 1.6,
-          phase: Math.random() * Math.PI * 2,
-        });
-      }
-      const maxStars = 400;
-      if (stars.length > maxStars) {
-        stars.splice(0, stars.length - maxStars);
-      }
     }
   }
 
@@ -1113,30 +1203,45 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     const dt = ticker.deltaMS / 1000;
     totalElapsedMs += ticker.deltaMS;
 
-    // 明るさ：セクション目標へ補間 + クリックの一時加算
-    const targetBrightness = Math.min(1, SECTION_BRIGHTNESS[section] + brightnessBoost);
+    // 明るさ：セクション目標 + クリックの一時加算 + 屋台の明るさ/歌灯りゲージ
+    const targetBrightness = Math.min(
+      1,
+      SECTION_BRIGHTNESS[section] + brightnessBoost + yataiBrightness * 0.5 + lightGauge * 0.2,
+    );
     brightness += (targetBrightness - brightness) * Math.min(1, dt * 0.8);
     brightnessBoost *= Math.exp(-dt * 1.0);
     moodIntensity *= Math.exp(-dt * 0.2);
     if (flareTimer > 0) flareTimer = Math.max(0, flareTimer - dt);
 
+    // ---- ゲーム性の状態更新（時間経過で穏やかに戻す） ----
+    yataiBrightness = Math.max(0, yataiBrightness - dt * 0.03); // 明るさは少しずつ下がる
+    lightGauge = Math.max(0, lightGauge - dt * 0.12); // 歌灯りゲージも自然減衰
+    peakBrightness = Math.max(peakBrightness, yataiBrightness);
+    if (festivalScrollBoost > 0) festivalScrollBoost = Math.max(0, festivalScrollBoost - dt);
+    if (lightHoldTimer > 0) lightHoldTimer = Math.max(0, lightHoldTimer - dt);
+
     const horizonY = getHorizonY();
     const S = unit();
 
-    // 自分の歩み：屋台の列を左へ流す（サビで歩が速くなる）
+    // 自分の歩み：屋台の列を左へ流す（サビで歩が速くなる。festival は一時加速）
     const isChorus = section === "chorus" || section === "finalChorus";
-    const targetSpeed = S * (isChorus ? 0.09 : 0.05) * (0.55 + brightness * 0.45);
+    const targetSpeed =
+      S * (isChorus ? 0.09 : 0.05) * (0.55 + brightness * 0.45) + festivalScrollBoost * S * 0.05;
     scrollSpeed += (targetSpeed - scrollSpeed) * Math.min(1, dt * 1.5);
 
-    // 提灯の点灯下限（サビ突入時は flareTimer でわずかに底上げ）
-    const litFloor = section === "intro" ? 0 : brightness * 0.15 + flareTimer * 0.15;
+    // 提灯の点灯下限（サビ突入時は flareTimer、明るさが高いほど底上げ）
+    const litFloor =
+      section === "intro" ? 0 : brightness * 0.15 + flareTimer * 0.15 + yataiBrightness * 0.25;
 
     for (const stall of stalls) {
       stall.x -= scrollSpeed * dt;
       if (stall.x < -stallSpacing) {
         recycleStall(stall);
       }
-      const tgt = Math.max(stall.target, litFloor);
+      // 提灯の灯りの持続：点灯はゆっくり弱まり（deep中は長持ち）、歌詞で再点灯する
+      const decay = lightHoldTimer > 0 ? 0.02 : 0.05;
+      stall.target = Math.max(litFloor, stall.target - dt * decay);
+      const tgt = stall.target;
       stall.lit += (tgt - stall.lit) * Math.min(1, dt * 3);
       stall.container.position.set(stall.x, horizonY);
       // 奥行き感：小さい屋台はやや淡く
@@ -1230,7 +1335,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       }
     }
 
-    // 周囲の提灯（ゆらぎ・サビで明るく）
+    // 周囲の提灯（ゆらぎ・サビで明るく・共鳴で光る）
     const flockLift = section === "finalChorus" ? -10 : 0;
     for (const c of community) {
       const dx = Math.sin(totalElapsedMs * 0.0008 + c.data.phase) * 6;
@@ -1238,6 +1343,19 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
       c.gfx.position.set(c.data.x + dx, c.baseY + dy + flockLift);
       const targetAlpha = c.data.opacity * (0.7 + brightness * 0.6);
       c.gfx.alpha += (Math.min(1, targetAlpha) - c.gfx.alpha) * Math.min(1, dt * 2);
+
+      // 共鳴：サビ中は徐々に光り、それ以外は減衰する
+      if (isChorus) {
+        c.resonance = Math.min(1, c.resonance + dt * 0.4);
+        if (!c.hasResonated && c.resonance > 0.5) {
+          c.hasResonated = true;
+          resonanceCount += 1;
+        }
+      } else {
+        c.resonance = Math.max(0, c.resonance - dt * 0.35);
+      }
+      const glowPulse = 0.4 + 0.3 * Math.sin(totalElapsedMs * 0.004 + c.data.phase);
+      c.glow.alpha = c.resonance * glowPulse;
     }
 
     // 周囲の提灯の自動出現
@@ -1275,12 +1393,42 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
   }
 
+  // chorus 突入時：溜めた灯り＋共鳴で大きな一斉点灯を出す。
+  function releaseLightReserve() {
+    const reserveBoost = Math.min(0.4, lightReserve * 0.03);
+    // 周囲の提灯が多いほど明るさ上昇が少し増える（共鳴ボーナス）
+    const resonanceBonus = community.length >= 6 ? 0.12 : community.length >= 3 ? 0.06 : 0;
+    yataiBrightness = Math.min(1, yataiBrightness + reserveBoost + resonanceBonus);
+    lightGauge = Math.min(1, lightGauge + 0.5);
+    brightnessBoost = Math.min(0.4, brightnessBoost + reserveBoost + 0.12);
+    lightReserve = 0;
+    lightVisibleStalls(); // 通りの屋台が一斉に灯る
+    resonateCommunity(1); // 周囲の提灯も一斉に光る
+
+    // 一斉点灯の光：画面内の屋台の提灯位置でバーストをずらして出す
+    const horizonY = getHorizonY();
+    const W = app.screen.width;
+    const hue = lanternTone(yataiConfig.lanternColor).hue;
+    let k = 0;
+    for (const stall of stalls) {
+      if (stall.x < 0 || stall.x > W) continue;
+      const sx = stall.x;
+      const sy = horizonY + stall.lanternLocalY * stall.scale;
+      window.setTimeout(() => spawnBurst(sx, sy, hue), k * 60);
+      k += 1;
+    }
+  }
+
   function setSection(s: SongSection) {
     if (s !== section && (s === "chorus" || s === "finalChorus")) {
       flareTimer = 1.8;
-      lightVisibleStalls(); // サビは通りの屋台が一斉に灯る
+      releaseLightReserve(); // サビは溜めた灯りを一斉点灯
     }
     section = s;
+  }
+
+  function getFestivalSummary(): FestivalSummary {
+    return { brightness: peakBrightness, resonanceCount, deepCount };
   }
 
   function setYataiConfig(config: YataiConfig) {
@@ -1340,6 +1488,15 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     }
     brightness = SECTION_BRIGHTNESS.intro;
     brightnessBoost = 0;
+    // ゲーム性の状態も初期化
+    yataiBrightness = 0;
+    peakBrightness = 0;
+    lightGauge = 0;
+    lightReserve = 0;
+    resonanceCount = 0;
+    deepCount = 0;
+    festivalScrollBoost = 0;
+    lightHoldTimer = 0;
     regenerateStars();
   }
 
@@ -1358,6 +1515,7 @@ export async function createNightYataiScene(parent: HTMLElement): Promise<NightY
     setSection,
     setTime,
     dropLyric,
+    getFestivalSummary,
     clearAll,
     resize,
     dispose,

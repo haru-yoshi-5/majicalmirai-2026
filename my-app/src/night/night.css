@@ -157,6 +157,59 @@
   background: radial-gradient(ellipse at center, rgba(12, 23, 64, 0.5), rgba(7, 14, 39, 0.92));
 }
 
+[data-mode="night"] .ending-overlay.night-ending .ending-card {
+  background: rgba(7, 13, 38, 0.78);
+  border-color: rgba(155, 220, 255, 0.3);
+  box-shadow:
+    0 16px 54px rgba(0, 0, 0, 0.42),
+    0 0 36px rgba(83, 190, 255, 0.16);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-headline,
+[data-mode="night"] .ending-overlay.night-ending .ending-label {
+  color: rgba(214, 242, 255, 0.9);
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.65);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-title {
+  color: #f7fcff;
+  text-shadow:
+    0 0 22px rgba(127, 222, 255, 0.44),
+    0 2px 16px rgba(0, 0, 0, 0.72);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-flight-title {
+  color: #ffe7a6;
+  text-shadow:
+    0 0 20px rgba(255, 198, 94, 0.5),
+    0 2px 14px rgba(0, 0, 0, 0.7);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-last-lyric,
+[data-mode="night"] .ending-overlay.night-ending .ending-words,
+[data-mode="night"] .ending-overlay.night-ending .ending-stat {
+  color: rgba(241, 250, 255, 0.96);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.72);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-button {
+  color: #effaff;
+  background: rgba(16, 34, 76, 0.72);
+  border-color: rgba(166, 225, 255, 0.38);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-button:hover {
+  background: rgba(27, 55, 111, 0.86);
+  border-color: rgba(255, 226, 151, 0.75);
+}
+
+[data-mode="night"] .ending-overlay.night-ending .ending-button-primary {
+  color: #081225;
+  background: linear-gradient(135deg, #ffe6a3, #74ddff);
+  border-color: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 8px 30px rgba(116, 221, 255, 0.28);
+}
+
 /* 読み込み中オーバーレイ（昼は和紙白。夜は藍） */
 [data-mode="night"] .loading-overlay {
   background: rgba(7, 14, 39, 0.72);
