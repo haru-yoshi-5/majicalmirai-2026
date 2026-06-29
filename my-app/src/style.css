@@ -844,6 +844,9 @@ body {
   backdrop-filter: blur(18px);
   -webkit-backdrop-filter: blur(18px);
   max-width: min(86vw, 560px);
+  /* 歌詞をたくさん選んでも画面からはみ出さず、ボタンに必ず届くようにする */
+  max-height: 88vh;
+  overflow-y: auto;
   box-shadow: 0 10px 40px rgba(46, 143, 190, 0.2);
 }
 

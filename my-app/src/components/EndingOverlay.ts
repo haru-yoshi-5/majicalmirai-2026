@@ -136,7 +136,13 @@ export function createEndingOverlay(parent: HTMLElement, options: EndingOverlayO
         seen.add(w.text);
         labels.push(w.text);
       }
-      wordList.textContent = labels.join("　");
+      // たくさん選んでも一覧が伸びすぎないよう、先頭からの一定数＋残り件数にまとめる
+      const MAX_WORDS = 14;
+      if (labels.length > MAX_WORDS) {
+        wordList.textContent = `${labels.slice(0, MAX_WORDS).join("　")}　…ほか${labels.length - MAX_WORDS}語`;
+      } else {
+        wordList.textContent = labels.join("　");
+      }
     }
     root.classList.add("is-visible");
     root.setAttribute("aria-hidden", "false");
