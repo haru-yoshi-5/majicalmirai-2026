@@ -1,0 +1,129 @@
+/* ============================================================
+   湖のソナーレ — Color System
+   claude.ai/design「湖のソナーレ Design System」の tokens/colors.css
+   をローカルへ取り込んだもの。色の唯一の真実（source of truth）。
+
+   Day (昼の部) を既定の :root テーマとする。
+   Night (夜の部) は [data-mode="night"] で上書き（今後の追加用に保持）。
+   Brand anchor: Miku teal (#39C5BB) が昼夜を貫く。
+   ============================================================ */
+
+:root {
+  /* ---- Raw brand palette (theme-independent) ---- */
+  --miku-teal: #39c5bb; /* Hatsune Miku signature */
+  --miku-teal-deep: #128c84;
+  --miku-teal-glow: #5fe6dc;
+  --miku-teal-ink: #0c4f4a;
+
+  /* ---- Day raw palette (昼) ---- */
+  --sky: #6ec1e4;
+  --sky-pale: #d5eef8;
+  --sky-deep: #2e8fbe;
+  --sand: #efe0bc;
+  --sand-deep: #d8c089;
+  --sunflower: #f6c544;
+  --sunflower-deep: #e5a317;
+
+  /* ---- Night raw palette (夜) ---- */
+  --indigo-950: #070e27;
+  --indigo-900: #0c1740;
+  --indigo-800: #16245c;
+  --indigo-700: #243a86;
+  --lantern: #ff9e3d;
+  --lantern-deep: #f2762b;
+  --lantern-glow: #ffc178;
+
+  /* ---- Festival shared accents ---- */
+  --matsuri-red: #e4503a;
+  --matsuri-red-deep: #be3320;
+  --festival-pink: #f2879e;
+  --gold: #d9b25a;
+
+  /* ---- Ink / paper neutrals ---- */
+  --ink-900: #12303b;
+  --ink-700: #355361;
+  --ink-500: #5e7a86;
+  --ink-300: #9db1b9;
+  --paper: #fbf7ec; /* warm washi white */
+  --paper-card: #ffffff;
+  --paper-line: #e7dfc9;
+
+  /* ============================================
+     SEMANTIC ALIASES — DAY (昼の部) defaults
+     ============================================ */
+  --bg-base: var(--sky-pale);
+  --bg-grad-top: #e8f6fc;
+  --bg-grad-bottom: #fbf1d6; /* sky → sand horizon */
+  --surface: var(--paper-card);
+  --surface-sub: var(--paper);
+  --surface-line: var(--paper-line);
+  --surface-sunk: #f3eedd;
+
+  --text-strong: var(--ink-900);
+  --text-body: var(--ink-700);
+  --text-muted: var(--ink-500);
+  --text-on-accent: #ffffff;
+  --text-inverse: #fbf7ec;
+
+  --brand: var(--miku-teal-deep);
+  --brand-bright: var(--miku-teal);
+  --brand-soft: #dbf4f1;
+  --brand-ring: rgba(18, 140, 132, 0.35);
+
+  --accent: var(--sunflower-deep);
+  --accent-soft: #fcefc4;
+  --festival: var(--matsuri-red);
+  --festival-soft: #fbe0da;
+
+  --focus-ring: rgba(46, 143, 190, 0.55);
+
+  /* status */
+  --ok: #2f9e6b;
+  --warn: #e5a317;
+  --err: #d6452f;
+
+  /* glow strength — day is subtle */
+  --glow-brand: 0 0 0 rgba(57, 197, 187, 0);
+  --glow-accent: 0 0 0 rgba(0, 0, 0, 0);
+}
+
+/* ============================================
+   SEMANTIC ALIASES — NIGHT (夜の部)
+   Neon-glow, lantern-lit lake at night.
+   ※ 今後の「夜の部」追加用。data-mode="night" で有効化。
+   ============================================ */
+[data-mode="night"] {
+  --bg-base: var(--indigo-900);
+  --bg-grad-top: #0a1336;
+  --bg-grad-bottom: #18204f; /* night sky → lake */
+  --surface: rgba(28, 42, 92, 0.72);
+  --surface-sub: rgba(18, 30, 72, 0.66);
+  --surface-line: rgba(120, 150, 230, 0.22);
+  --surface-sunk: rgba(8, 16, 46, 0.6);
+
+  --text-strong: #eaf3ff;
+  --text-body: #c2d2f0;
+  --text-muted: #8194c4;
+  --text-on-accent: #1a1206;
+  --text-inverse: #0c1740;
+
+  --brand: var(--miku-teal);
+  --brand-bright: var(--miku-teal-glow);
+  --brand-soft: rgba(57, 197, 187, 0.16);
+  --brand-ring: rgba(95, 230, 220, 0.5);
+
+  --accent: var(--lantern);
+  --accent-soft: rgba(255, 158, 61, 0.18);
+  --festival: var(--matsuri-red);
+  --festival-soft: rgba(228, 80, 58, 0.2);
+
+  --focus-ring: rgba(95, 230, 220, 0.6);
+
+  --ok: #4fd8a0;
+  --warn: var(--lantern);
+  --err: #ff7a6b;
+
+  /* glow strength — night blooms */
+  --glow-brand: 0 0 22px rgba(70, 229, 216, 0.55);
+  --glow-accent: 0 0 26px rgba(255, 158, 61, 0.5);
+}

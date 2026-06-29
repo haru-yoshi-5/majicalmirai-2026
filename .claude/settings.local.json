@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(vp check *)",
+      "Bash(vp build *)",
+      "Bash(vp dev *)",
+      "Bash(kill %1)"
+    ]
+  }
+}

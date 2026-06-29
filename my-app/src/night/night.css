@@ -1,0 +1,163 @@
+/* ============================================================
+   夜の部「歌灯りの御殿屋台」専用スタイル。
+   昼の style.css には手を加えず、夜だけで使う差分をここに集約する。
+   - レイアウトは共有クラス（.setup-* / .ending-* / .player-* / .lyric-*）を再利用
+   - 配色は theme/colors.css の [data-mode="night"] が担当
+   - このファイルは「夜専用プレビュー」と「明色固定だった箇所の夜向け上書き」のみ
+   ============================================================ */
+
+/* ------- 屋台づくりプレビュー（御殿屋台） ------- */
+.yatai-preview {
+  --yatai-color: #be3320;
+  --lantern-color: #ffb357;
+  position: relative;
+  width: 168px;
+  height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.45));
+}
+
+/* 唐破風風の屋根 */
+.yatai-preview-roof {
+  position: relative;
+  width: 150px;
+  height: 42px;
+  background: linear-gradient(180deg, #2b1a12, #4a2c1c);
+  border: 1px solid var(--gold);
+  border-radius: 60% 60% 12% 12% / 90% 90% 12% 12%;
+  box-shadow: 0 0 14px rgba(217, 178, 90, 0.4);
+}
+
+.yatai-preview-roof::after {
+  /* 屋根の金の棟飾り */
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -6px;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 10px var(--lantern-glow);
+}
+
+/* 軒下に吊る提灯の列 */
+.yatai-preview-lanterns {
+  display: flex;
+  gap: 9px;
+  margin-top: -6px;
+  margin-bottom: 2px;
+  z-index: 2;
+}
+
+.yatai-preview-lantern {
+  width: 13px;
+  height: 18px;
+  border-radius: 50% 50% 48% 48%;
+  background: var(--lantern-color);
+  box-shadow:
+    0 0 10px var(--lantern-color),
+    0 0 18px color-mix(in srgb, var(--lantern-color) 60%, transparent);
+}
+
+/* 屋台本体（幕） */
+.yatai-preview-body {
+  position: relative;
+  width: 122px;
+  height: 64px;
+  background: var(--yatai-color);
+  border: 1px solid var(--gold);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff8ec;
+  font-size: 26px;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  box-shadow: inset 0 0 18px rgba(0, 0, 0, 0.35);
+}
+
+.yatai-preview-wish {
+  position: relative;
+  z-index: 1;
+  text-shadow:
+    0 0 10px rgba(0, 0, 0, 0.6),
+    0 0 4px rgba(0, 0, 0, 0.7);
+}
+
+/* 幕の紋様（控えめなオーバーレイ） */
+.yatai-preview-body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: cover;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.yatai-pattern-ripple .yatai-preview-body::after {
+  background-image: radial-gradient(
+    circle at 50% 120%,
+    transparent 30%,
+    rgba(255, 255, 255, 0.35) 32%,
+    transparent 40%,
+    rgba(255, 255, 255, 0.28) 52%,
+    transparent 60%,
+    rgba(255, 255, 255, 0.2) 72%,
+    transparent 80%
+  );
+}
+
+.yatai-pattern-sound .yatai-preview-body::after {
+  background-image: repeating-linear-gradient(
+    180deg,
+    transparent 0 11px,
+    rgba(255, 255, 255, 0.3) 11px 12px
+  );
+}
+
+.yatai-pattern-star .yatai-preview-body::after {
+  background-image:
+    radial-gradient(circle at 30% 35%, rgba(255, 255, 255, 0.8) 0 3%, transparent 4%),
+    radial-gradient(circle at 65% 30%, rgba(255, 255, 255, 0.6) 0 2.5%, transparent 3.5%),
+    radial-gradient(circle at 50% 60%, rgba(255, 255, 255, 0.7) 0 3%, transparent 4%),
+    radial-gradient(circle at 78% 70%, rgba(255, 255, 255, 0.5) 0 2%, transparent 3%),
+    radial-gradient(circle at 22% 72%, rgba(255, 255, 255, 0.5) 0 2%, transparent 3%);
+}
+
+.yatai-pattern-flower .yatai-preview-body::after {
+  background-image: radial-gradient(
+    circle at 50% 50%,
+    rgba(255, 255, 255, 0.45) 0 6%,
+    transparent 8%,
+    rgba(255, 200, 220, 0.35) 14%,
+    transparent 20%
+  );
+}
+
+.yatai-pattern-wind .yatai-preview-body::after {
+  background-image: repeating-linear-gradient(
+    150deg,
+    transparent 0 12px,
+    rgba(255, 255, 255, 0.32) 12px 15px
+  );
+}
+
+/* ------- 明色固定だった箇所を夜向けに上書き ------- */
+
+/* エンディング背景（昼は和紙白の放射グラデ。夜は深い藍に） */
+[data-mode="night"] .ending-overlay.night-ending {
+  background: radial-gradient(ellipse at center, rgba(12, 23, 64, 0.5), rgba(7, 14, 39, 0.92));
+}
+
+/* 読み込み中オーバーレイ（昼は和紙白。夜は藍） */
+[data-mode="night"] .loading-overlay {
+  background: rgba(7, 14, 39, 0.72);
+}
